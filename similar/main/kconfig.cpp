@@ -218,9 +218,10 @@ struct kc_menu : window
 
 #if DXX_USE_MISTER_HYBRID
 /* The MiSTer joystick has the buttons of the core's "J1," list in order:
- * Fire Primary, Fire Secondary, Accelerate, Reverse, Slide, Cycle
- * Primary, Cycle Secondary, Menu.  The left stick and the d-pad turn,
- * the right stick slides.
+ * Fire Primary, Fire Secondary, Accelerate, Reverse, Cycle Primary,
+ * Cycle Secondary, Rear View, Menu.  The right stick and the d-pad turn,
+ * the left stick slides, the triggers are the throttle (axis 4, joy.cpp).
+ * Slide On has no button.
  */
 #define DXX_MISTER_DEFAULT(M,D)	M
 /* In the controls menu: Select clears a binding, holding Start resets
@@ -323,7 +324,7 @@ constexpr struct player_config::KeySettings DefaultKeySettings{
 		// Fire flare
 		0xff,
 		// Slide on
-		DXX_MISTER_DEFAULT(0x4, 0xff),
+		0xff,
 		// Slide left
 		0xff,
 		// Slide right
@@ -347,19 +348,19 @@ constexpr struct player_config::KeySettings DefaultKeySettings{
 		 * the axes.
 		 */
 		// Pitch up/down
-		0x1,
+		DXX_MISTER_DEFAULT(0x3, 0x1),
 		// Invert pitch
 		0x0,
 		// Turn left/right
-		0x0,
+		DXX_MISTER_DEFAULT(0x2, 0x0),
 		// Invert turn
 		0x0,
 		// Slide left/right
-		DXX_MISTER_DEFAULT(0x2, 0xff),
+		DXX_MISTER_DEFAULT(0x0, 0xff),
 		// Invert slide left/right
 		0x0,
 		// Slide up/down
-		DXX_MISTER_DEFAULT(0x3, 0xff),
+		DXX_MISTER_DEFAULT(0x1, 0xff),
 		// Invert slide up/down
 		0x0,
 		// Bank left/right
@@ -367,12 +368,12 @@ constexpr struct player_config::KeySettings DefaultKeySettings{
 		// Invert bank left/right
 		0x0,
 		// Throttle
-		0xff,
+		DXX_MISTER_DEFAULT(0x4, 0xff),
 		// Invert throttle
 		0x0,
 		/* End axis+invert block. */
 		// Rear view
-		0xff,
+		DXX_MISTER_DEFAULT(0x6, 0xff),
 		// Drop bomb
 		0xff,
 #if DXX_BUILD_DESCENT == 1
@@ -382,9 +383,9 @@ constexpr struct player_config::KeySettings DefaultKeySettings{
 		// Afterburner
 		0xff,
 		// Cycle primary
-		DXX_MISTER_DEFAULT(0x5, 0xff),
+		DXX_MISTER_DEFAULT(0x4, 0xff),
 		// Cycle secondary
-		DXX_MISTER_DEFAULT(0x6, 0xff),
+		DXX_MISTER_DEFAULT(0x5, 0xff),
 		// Headlight
 		0xff,
 #endif
@@ -420,9 +421,9 @@ constexpr struct player_config::KeySettings DefaultKeySettings{
 		0xff,
 #if DXX_BUILD_DESCENT == 1
 		// Cycle primary
-		DXX_MISTER_DEFAULT(0x5, 0xff),
+		DXX_MISTER_DEFAULT(0x4, 0xff),
 		// Cycle secondary
-		DXX_MISTER_DEFAULT(0x6, 0xff),
+		DXX_MISTER_DEFAULT(0x5, 0xff),
 #elif DXX_BUILD_DESCENT == 2
 		// Afterburner (second binding)
 		0xff,
@@ -561,6 +562,29 @@ constexpr struct player_config::KeySettings DefaultKeySettings{
 #endif
 	}}}
 };
+
+#if DXX_USE_MISTER_HYBRID && DXX_MAX_JOYSTICKS
+/* The first defaults (up to 2026-10-23) turned with the left stick, slid
+ * with L, cycled the weapons with R and Select and had no throttle.  A
+ * pilot that still has all of them gets the new ones; one whose player
+ * changed any is left as it is.
+ */
+void kc_mister_update_joystick(enumerated_array<uint8_t, MAX_CONTROLS, dxx_kconfig_ui_kc_joystick> &joystick)
+{
+	auto first{DefaultKeySettings.Joystick};
+	first[dxx_kconfig_ui_kc_joystick_slide_on] = 0x4;
+	first[dxx_kconfig_ui_kc_joystick_pitch_ud] = 0x1;
+	first[dxx_kconfig_ui_kc_joystick_turn] = 0x0;
+	first[dxx_kconfig_ui_kc_joystick_slide_lr] = 0x2;
+	first[dxx_kconfig_ui_kc_joystick_slide_ud] = 0x3;
+	first[dxx_kconfig_ui_kc_joystick_throttle] = 0xff;
+	first[dxx_kconfig_ui_kc_joystick_rear_view] = 0xff;
+	first[dxx_kconfig_ui_kc_joystick_cycle_primary] = 0x5;
+	first[dxx_kconfig_ui_kc_joystick_cycle_secondary] = 0x6;
+	if (joystick == first)
+		joystick = DefaultKeySettings.Joystick;
+}
+#endif
 
 #if DXX_MAX_JOYSTICKS
 #if SDL_MAJOR_VERSION == 2

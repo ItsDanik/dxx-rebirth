@@ -1185,6 +1185,9 @@ int read_player_file()
 #endif
 		if (PHYSFSX_readBytes(file, &KeySettingsJoystick, sizeof(KeySettingsJoystick)) != sizeof(KeySettingsJoystick))
 			goto read_player_file_failed;
+#if DXX_USE_MISTER_HYBRID && DXX_MAX_JOYSTICKS
+		kc_mister_update_joystick(KeySettingsJoystick);
+#endif
 		PHYSFS_seek( file, PHYSFS_tell(file)+(sizeof(ubyte)*MAX_CONTROLS*3) ); // Skip obsolete Flightstick/Thrustmaster/Gravis map fields
 		if (PHYSFSX_readBytes(file, &PlayerCfg.KeySettings.Mouse, sizeof(PlayerCfg.KeySettings.Mouse)) != sizeof(PlayerCfg.KeySettings.Mouse))
 			goto read_player_file_failed;

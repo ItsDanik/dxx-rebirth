@@ -257,6 +257,10 @@ extern const struct player_config::KeySettings DefaultKeySettings;
 #if DXX_MAX_JOYSTICKS
 extern const enumerated_array<uint8_t, MAX_CONTROLS, dxx_kconfig_ui_kc_joystick> DefaultKeySettingsGameController;
 #endif
+#if DXX_USE_MISTER_HYBRID && DXX_MAX_JOYSTICKS
+/* A pilot made with the first MiSTer defaults gets the current ones */
+void kc_mister_update_joystick(enumerated_array<uint8_t, MAX_CONTROLS, dxx_kconfig_ui_kc_joystick> &);
+#endif
 
 void write_player_file();
 
