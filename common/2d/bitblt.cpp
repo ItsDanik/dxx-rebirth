@@ -58,7 +58,24 @@ static void gr_linear_rep_movsdm(uint8_t *const dest, const uint8_t *const src, 
 	auto predicate = [&](uint8_t s, uint8_t d) {
 		return s == 255 ? d : s;
 	};
-	std::transform(src, src + num_pixels, dest, dest, predicate);
+	/* Four pixels at a time where all of them are transparent or none is,
+	 * which is nearly everywhere in a cockpit: this is drawn over the
+	 * whole screen for every frame.
+	 */
+	uint_fast32_t i{0};
+	for (; i + 4 <= num_pixels; i += 4)
+	{
+		uint32_t s;
+		memcpy(&s, &src[i], 4);
+		if (s == 0xffffffff)
+			continue;
+		/* a byte of ~s is 0 where a pixel is transparent */
+		if (const uint32_t n{~s}; ((n - 0x01010101) & ~n & 0x80808080) == 0)
+			memcpy(&dest[i], &s, 4);
+		else
+			std::transform(&src[i], &src[i + 4], &dest[i], &dest[i], predicate);
+	}
+	std::transform(src + i, src + num_pixels, dest + i, dest + i, predicate);
 }
 #endif
 
@@ -441,6 +458,15 @@ static void gr_bitmap_scale_to(const grs_bitmap &src, grs_bitmap &dst)
 {
 	auto s = src.get_bitmap_data();
 	auto d = dst.get_bitmap_data();
+	if (src.bm_w == dst.bm_w && src.bm_h == dst.bm_h)
+	{
+		/* Nothing to scale: the background of a menu on a screen of its
+		 * own size, which is drawn for every frame.
+		 */
+		for (uint_fast32_t y = src.bm_h; y; --y, s += src.bm_rowsize, d += dst.bm_rowsize)
+			memcpy(d, s, src.bm_w);
+		return;
+	}
 	int h = src.bm_h;
 	int a = dst.bm_h/h, b = dst.bm_h%h;
 	int c{0}, i;

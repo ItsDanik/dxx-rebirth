@@ -45,6 +45,10 @@ using HMODULE = void *;
 
 }
 
+using dcx::CON_NORMAL;
+using dcx::con_printf;
+using dcx::con_puts;
+
 static ADL_MIDIPlayer *adl_init_failure(long)
 {
 	return nullptr;

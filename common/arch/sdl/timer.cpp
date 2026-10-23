@@ -18,6 +18,8 @@
 #include "config.h"
 #include "game.h"
 #include "multi.h"
+#include <algorithm>
+#include "mister_port.h"
 
 namespace dcx {
 
@@ -27,6 +29,11 @@ fix64 timer_update()
 {
 	static bool already_initialized;
 	static fix64 last_tv;
+#if DXX_USE_MISTER_HYBRID
+	if (fix64 mister_runtime; MiSTer_RunTime(mister_runtime))
+		/* Do not go back if the core appears after the game has started */
+		return F64_RunTime = std::max(F64_RunTime, mister_runtime);
+#endif
 	const fix64 cur_tv = static_cast<fix64>(SDL_GetTicks()) * F1_0 / 1000;
 	const fix64 prev_tv = last_tv;
 	fix64 runtime = F64_RunTime;

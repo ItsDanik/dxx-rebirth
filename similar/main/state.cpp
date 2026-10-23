@@ -1360,7 +1360,15 @@ int state_save_all_sub(const char *filename, const char *desc)
 	{
 		{
 			window_rendered_data window;
+#if !DXX_USE_OGL
+			/* The software renderer draws to the current canvas */
+			const auto save_canvas{grd_curcanv};
+			gr_set_current_canvas(*cnv);
+#endif
 			render_frame(*cnv, 0, window);
+#if !DXX_USE_OGL
+			gr_set_current_canvas(save_canvas);
+#endif
 		}
 
 		{

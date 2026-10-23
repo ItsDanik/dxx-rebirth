@@ -38,6 +38,7 @@ char copyright[] = "DESCENT   COPYRIGHT (C) 1994,1995 PARALLAX SOFTWARE CORPORAT
 char copyright[] = "DESCENT II  COPYRIGHT (C) 1994-1996 PARALLAX SOFTWARE CORPORATION";
 #endif
 
+#include "mister_port.h"
 #include "dxxsconf.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -631,7 +632,7 @@ static int main(int argc, char *argv[])
 	con_puts(CON_DEBUG, "Initializing font system...");
 	gamefont_init();	// must load after palette data loaded.
 
-#if DXX_USE_OGL
+#if DXX_USE_OGL || SDL_MAJOR_VERSION == 2
 	gr_set_mode_from_window_size();
 #else
 	gr_set_mode(Game_screen_mode);
@@ -784,7 +785,13 @@ int main(int argc, char *argv[])
 	void d_set_exception_handler();
 	d_set_exception_handler();
 #endif
+#if DXX_USE_MISTER_HYBRID
+	if (const auto r{dsx::main(argc, argv)})
+		return r;
+	return MiSTer_ExitCode();
+#else
 	return dsx::main(argc, argv);
+#endif
 }
 
 #undef argv

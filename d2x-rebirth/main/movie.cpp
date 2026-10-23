@@ -23,6 +23,7 @@ COPYRIGHT 1993-1999 PARALLAX SOFTWARE CORPORATION.  ALL RIGHTS RESERVED.
  *
  */
 
+#include <algorithm>
 #include <string.h>
 #ifndef macintosh
 # include <sys/types.h>
@@ -34,6 +35,7 @@ COPYRIGHT 1993-1999 PARALLAX SOFTWARE CORPORATION.  ALL RIGHTS RESERVED.
 #endif // ! macintosh
 #include <ctype.h>
 
+#include "mister_port.h"
 #include "movie.h"
 #include "window.h"
 #include "console.h"
@@ -199,6 +201,9 @@ void MovieShowFrame(const uint8_t *buf, int dstx, int dsty, int bufw, int bufh, 
 			scale = (static_cast<float>(SHEIGHT)/sh);
 	}
 
+#if !DXX_USE_OGL
+	const bool center_x{dstx == -1}, center_y{dsty == -1};
+#endif
 	if (dstx == -1) // center it
 		dstx = (SWIDTH/2)-((bufw*scale)/2);
 	if (dsty == -1) // center it
@@ -219,6 +224,55 @@ void MovieShowFrame(const uint8_t *buf, int dstx, int dsty, int bufw, int bufh, 
 
 	glEnable (GL_BLEND);
 #else
+	/* Straight into the canvas, a row at a time, scaled if the movie is not
+	 * made for the size of the screen: from the screen the movie expects
+	 * (sw x sh) to the one there is, each axis on its own, as the pixels
+	 * need not be square.  gr_bm_ubitbltm calls two functions for every
+	 * pixel, which is too slow for a full screen 15 times a second on a
+	 * small CPU.
+	 */
+	if (auto &cb{grd_curcanv->cv_bitmap}; cb.get_type() == bm_mode::linear && sw > 0 && sh > 0 && bufw > 0 && bufh > 0)
+	{
+		const unsigned screen_w{SWIDTH}, screen_h{SHEIGHT};
+		const bool scaled{static_cast<unsigned>(sw) != screen_w || static_cast<unsigned>(sh) != screen_h};
+		unsigned dw{scaled ? bufw * screen_w / sw : bufw};
+		unsigned dh{scaled ? bufh * screen_h / sh : bufh};
+		if (!dw || !dh)
+			return;
+		/* Where the caller put the frame is in the coordinates of the
+		 * screen already, where the movie puts it is not.
+		 */
+		const unsigned x{(scaled && center_x) ? (screen_w > dw ? (screen_w - dw) / 2 : 0) : static_cast<unsigned>(std::max(dstx, 0))};
+		const unsigned y{(scaled && center_y) ? (screen_h > dh ? (screen_h - dh) / 2 : 0) : static_cast<unsigned>(std::max(dsty, 0))};
+		if (x >= cb.bm_w || y >= cb.bm_h)
+			return;
+		/* 16.16 steps through the source */
+		const uint32_t xstep{(static_cast<uint32_t>(bufw) << 16) / dw};
+		const uint32_t ystep{(static_cast<uint32_t>(bufh) << 16) / dh};
+		dw = std::min<unsigned>(dw, cb.bm_w - x);
+		dh = std::min<unsigned>(dh, cb.bm_h - y);
+		auto dst{&cb.get_bitmap_data()[(cb.bm_rowsize * y) + x]};
+		uint32_t fy{0};
+		for (unsigned row{0}; row < dh; ++row, fy += ystep, dst += cb.bm_rowsize)
+		{
+			const auto src{&buf[std::min<unsigned>(fy >> 16, bufh - 1) * bufw]};
+			if (xstep == 0x10000)
+			{
+				/* 255 is see-through: the robots of the briefings */
+				for (unsigned i{0}; i < dw; ++i)
+					if (const auto c{src[i]}; c != 255)
+						dst[i] = c;
+			}
+			else
+			{
+				uint32_t fx{0};
+				for (unsigned i{0}; i < dw; ++i, fx += xstep)
+					if (const auto c{src[fx >> 16]}; c != 255)
+						dst[i] = c;
+			}
+		}
+		return;
+	}
 	gr_bm_ubitbltm(*grd_curcanv, bufw, bufh, dstx, dsty, 0, 0, source_bm);
 #endif
 }
@@ -331,7 +385,10 @@ window_event_result movie::event_handler(const d_event &event)
 		case event_type::joystick_button_down:
 		{
 			const auto btn = event_joystick_get_button(event);
-#if SDL_MAJOR_VERSION == 2
+#if DXX_USE_MISTER_HYBRID
+			/* Menu OK and Menu Back of the core, and the menu button */
+			if (btn == mister_joy_button::menu || btn == mister_joy_button::core_menu_ok || btn == mister_joy_button::core_menu_back || btn == mister_joy_button::menu_ok || btn == mister_joy_button::menu_back)
+#elif SDL_MAJOR_VERSION == 2
 			if (btn == SDL_CONTROLLER_BUTTON_B || btn == SDL_CONTROLLER_BUTTON_BACK)
 #else
 			if (btn == 1)
@@ -670,6 +727,15 @@ static PHYSFS_ErrorCode init_movie(const char *movielib, char resolution, int re
 
 static std::pair<PHYSFS_ErrorCode, movie_resolution> init_movie(const char *movielib, int required, LoadedMovie &movie)
 {
+#if DXX_USE_MISTER_HYBRID
+	/* The screen of the core has the size of the low resolution movies.
+	 * The high resolution ones are scaled down to it, if they are all
+	 * there is.
+	 */
+	if (const auto r{init_movie(movielib, 'l', 0, movie)}; r == PHYSFS_ERR_OK)
+		return {r, movie_resolution::low};
+	return {init_movie(movielib, 'h', required, movie), movie_resolution::high};
+#endif
 	if (!GameArg.GfxSkipHiresMovie)
 	{
 		if (const auto r{init_movie(movielib, 'h', required, movie)}; r == PHYSFS_ERR_OK)

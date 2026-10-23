@@ -41,6 +41,27 @@ fix64 fixmul64(fix a, fix b)
 	return (fix64{a} * fix64{b}) / 65536;
 }
 
+#if defined(__arm__) || defined(DXX_TEST_FIXDIV_FLOAT)
+/* 32 bit ARM CPUs like the Cortex-A9 have no divide instruction, and the
+ * 64 bit division of the compiler's runtime takes hundreds of cycles.
+ * The floating point unit divides much faster.  Its quotient, cut off, is
+ * the exact one or one next to it, and the remainder tells which: the
+ * result is the same as that of the integer division, bit for bit.
+ */
+[[gnu::const]]
+static fix fixdiv_float(const fix a, const fix b)
+{
+	const uint64_t n{static_cast<uint64_t>(a < 0 ? -int64_t{a} : int64_t{a}) << 16};
+	const uint64_t d{static_cast<uint64_t>(b < 0 ? -int64_t{b} : int64_t{b})};
+	auto q{static_cast<uint64_t>(static_cast<double>(n) / static_cast<double>(d))};
+	if (const auto r{static_cast<int64_t>(n - (q * d))}; r < 0)
+		--q;
+	else if (static_cast<uint64_t>(r) >= d)
+		++q;
+	return static_cast<fix>((a < 0) != (b < 0) ? -static_cast<int64_t>(q) : static_cast<int64_t>(q));
+}
+#endif
+
 fix fixdiv(fix a, fix b)
 {
 	if (!b)
@@ -48,7 +69,11 @@ fix fixdiv(fix a, fix b)
 		[[unlikely]];
 		return 1;
 	}
+#if defined(__arm__) || defined(DXX_TEST_FIXDIV_FLOAT)
+	return fixdiv_float(a, b);
+#else
 	return static_cast<fix>((fix64{a} * 65536) / b);
+#endif
 }
 
 fix fixmuldiv(fix a, fix b, fix c)

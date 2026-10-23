@@ -23,6 +23,7 @@ COPYRIGHT 1993-1999 PARALLAX SOFTWARE CORPORATION.  ALL RIGHTS RESERVED.
  *
  */
 
+#include "mister_port.h"
 #include "dxxsconf.h"
 #include <algorithm>
 #include <stdio.h>
@@ -1240,10 +1241,22 @@ window_event_result automap::event_handler(const d_event &event)
 			break;
 #endif
 
+#if DXX_USE_MISTER_HYBRID && DXX_MAX_BUTTONS_PER_JOYSTICK
+		case event_type::joystick_button_down:
+			/* The button that opened the game menu closes the automap.
+			 * Not Menu Back of the OSD, which may be a button that moves
+			 * the ship.
+			 */
+			if (const auto button{event_joystick_get_button(event)}; leave_mode == 0 && (button == mister_joy_button::menu || button == mister_joy_button::core_menu_back))
+				return window_event_result::close;
+			return automap_process_input(event, *this);
+#endif
 		case event_type::idle:
 #if DXX_MAX_BUTTONS_PER_JOYSTICK
 		case event_type::joystick_button_up:
+#if !DXX_USE_MISTER_HYBRID
 		case event_type::joystick_button_down:
+#endif
 #endif
 #if DXX_MAX_AXES_PER_JOYSTICK
 		case event_type::joystick_moved:

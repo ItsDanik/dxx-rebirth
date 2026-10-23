@@ -10,6 +10,9 @@
  */
 
 #include <stdexcept>
+#include "mister_port.h"
+#include "songs.h"
+#include "config.h"
 #include "dxxerror.h"
 #include "vecmat.h"
 #include "config.h"
@@ -214,6 +217,9 @@ void digi_select_system()
 int  digi_init()
 {
 	digi_init_sounds();
+#if DXX_USE_MISTER_HYBRID
+	MiSTer_OnVolumeChange(&digi_mister_set_volumes);
+#endif
 	return fptr->init();
 }
 
@@ -250,6 +256,17 @@ int  digi_is_channel_playing(const sound_channel channel)
 }
 
 void digi_stop_all_channels() { fptr->stop_all_channels(); }
+#if DXX_USE_MISTER_HYBRID
+void digi_set_digi_volume(int dvolume) { fptr->set_digi_volume(MiSTer_SoundVolume(dvolume)); }
+
+/* The volumes of the game's own options, with those of the OSD on top */
+void digi_mister_set_volumes()
+{
+	digi_set_digi_volume((CGameCfg.DigiVolume * 32768) / 8);
+	songs_set_volume(CGameCfg.MusicVolume);
+}
+#else
 void digi_set_digi_volume(int dvolume) { fptr->set_digi_volume(dvolume); }
+#endif
 
 }

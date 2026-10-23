@@ -29,6 +29,7 @@ COPYRIGHT 1993-1998 PARALLAX SOFTWARE CORPORATION.  ALL RIGHTS RESERVED.
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
+#include <array>
 #include "maths.h"
 #include "gr.h"
 #include "grdef.h"
@@ -574,6 +575,92 @@ static void c_tmap_scanline_per()
 	}
 }
 
+/* Perspective correct at both ends of spans of 16 pixels and linear in
+ * between, which is how the assembly of the original game did it.
+ * c_tmap_scanline_per divides twice for every pixel; that is what most of
+ * a frame is spent on with a CPU that has no divide instruction, like the
+ * ARM Cortex-A9.  Here it is one floating point division for 16 pixels.
+ */
+static void c_tmap_scanline_per_span()
+{
+	constexpr int span_shift{4};
+	constexpr int span{1 << span_shift};
+	/* 1/n for the last, shorter span of a line */
+	static constexpr std::array<float, span> recip{{
+		0, 1.f, 1.f / 2, 1.f / 3, 1.f / 4, 1.f / 5, 1.f / 6, 1.f / 7,
+		1.f / 8, 1.f / 9, 1.f / 10, 1.f / 11, 1.f / 12, 1.f / 13, 1.f / 14, 1.f / 15,
+	}};
+	const int index{fx_xleft + (bytes_per_row * fx_y)};
+	int x{fx_xright - fx_xleft + 1};
+	/* As c_tmap_scanline_per: nothing at or after the last pixel of the
+	 * screen.
+	 */
+	if (const int limit{SWIDTH * SHEIGHT - 1 - index}; x > limit)
+		x = limit;
+	if (x <= 0)
+		return;
+
+	/* Unsigned: these wrap around, as they do when they are added up
+	 * pixel by pixel.
+	 */
+	uint32_t u = fx_u, v = fx_v, z = fx_z;
+	const uint32_t dudx = fx_du_dx, dvdx = fx_dv_dx, dzdx = fx_dz_dx;
+	fix l{fx_l >> 8};
+	const fix dldx{fx_dl_dx / 256};
+	auto dest{&write_buffer[index]};
+	const auto pixPtrLocalCopy{pixptr};
+	auto &fadeTableLocalCopy{gr_fade_table};
+	const bool transparency{!!Transparency_on};
+
+	/* The texture coordinates of a point of the line, as 16.16 */
+	struct texcoord
+	{
+		uint32_t u, v;
+		texcoord(const uint32_t pu, const uint32_t pv, const uint32_t pz)
+		{
+			const auto iz{static_cast<fix>(pz)};
+			const double rz{iz ? 65536.0 / iz : 0.0};
+			u = static_cast<uint32_t>(static_cast<fix>(static_cast<fix>(pu) * rz));
+			v = static_cast<uint32_t>(static_cast<fix>(static_cast<fix>(pv) * rz));
+		}
+	};
+
+	for (texcoord t0{u, v, z}; x > 0;)
+	{
+		const int n{x < span ? x : span};
+		u += dudx * n;
+		v += dvdx * n;
+		z += dzdx * n;
+		const texcoord t1{u, v, z};
+		const auto du{static_cast<fix>(t1.u - t0.u)};
+		const auto dv{static_cast<fix>(t1.v - t0.v)};
+		const uint32_t tdu = (n == span) ? du >> span_shift : static_cast<fix>(du * recip[n]);
+		const uint32_t tdv = (n == span) ? dv >> span_shift : static_cast<fix>(dv * recip[n]);
+		uint32_t tu{t0.u}, tv{t0.v};
+		if (!transparency)
+			for (int i{n}; i > 0; --i)
+			{
+				*dest++ = fadeTableLocalCopy.base_type::operator[]((l >> 8) & 0x7f)[pixPtrLocalCopy[((tv >> 10) & (64 * 63)) + ((tu >> 16) & 63)]];
+				l += dldx;
+				tu += tdu;
+				tv += tdv;
+			}
+		else
+			for (int i{n}; i > 0; --i)
+			{
+				const uint8_t c{pixPtrLocalCopy[((tv >> 10) & (64 * 63)) + ((tu >> 16) & 63)]};
+				if (c != TRANSPARENCY_COLOR)
+					*dest = fadeTableLocalCopy.base_type::operator[]((l >> 8) & 0x7f)[c];
+				dest++;
+				l += dldx;
+				tu += tdu;
+				tv += tdv;
+			}
+		t0 = t1;
+		x -= n;
+	}
+}
+
 static void c_tmap_scanline_quad()
 {
 	uint c;
@@ -651,6 +738,17 @@ void select_tmap(const std::string &type)
 	{
 		cur_tmap_scanline_per=c_tmap_scanline_quad;
 	}
+	else if (type == "span")
+	{
+		cur_tmap_scanline_per=c_tmap_scanline_per_span;
+	}
+#if DXX_USE_MISTER_HYBRID
+	/* The ARM of the MiSTer has no divide instruction */
+	else if (type != "c")
+	{
+		cur_tmap_scanline_per=c_tmap_scanline_per_span;
+	}
+#endif
 	else {
 		cur_tmap_scanline_per=c_tmap_scanline_per;
 	}

@@ -119,6 +119,7 @@ COPYRIGHT 1993-1999 PARALLAX SOFTWARE CORPORATION.  ALL RIGHTS RESERVED.
 #include "compiler-range_for.h"
 #include "partial_range.h"
 #include "segiter.h"
+#include "mister_port.h"
 
 d_time_fix ThisLevelTime;
 
@@ -650,6 +651,9 @@ void calc_frame_time()
 	const auto bound = f1_0 / (likely(vsync) ? MAXIMUM_FPS : CGameArg.SysMaxFPS);
 	const auto may_sleep = !CGameArg.SysNoNiceFPS && !vsync;
 	const auto multiplayer{+(Game_mode & GM_MULTI)};
+#if DXX_USE_MISTER_HYBRID
+	MiSTer_WaitFrame();
+#endif
 	for (;;)
 	{
 		const auto timer_value = timer_update();
@@ -666,6 +670,11 @@ void calc_frame_time()
 		}
 		if (multiplayer)
 			multi_do_frame(); // during long wait, keep packets flowing
+#if DXX_USE_MISTER_HYBRID
+		/* The clock is the field counter of the core */
+		if (MiSTer_WaitField())
+			continue;
+#endif
 		if (may_sleep)
 			timer_delay_ms(1);
 	}

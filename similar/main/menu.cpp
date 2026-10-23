@@ -2081,8 +2081,16 @@ void hud_config()
 	(void)menu;
 }
 
+#if DXX_USE_MISTER_HYBRID
+/* The screen of the core has one size */
+#define DXX_SCREEN_RESOLUTION_GRAPHICS_MENU(VERB)
+#else
+#define DXX_SCREEN_RESOLUTION_GRAPHICS_MENU(VERB)	\
+	DXX_MENUITEM(VERB, MENU, "Screen resolution...", opt_gr_screenres)
+#endif
+
 #define DXX_GRAPHICS_MENU(VERB)	\
-	DXX_MENUITEM(VERB, MENU, "Screen resolution...", opt_gr_screenres)	\
+	DXX_SCREEN_RESOLUTION_GRAPHICS_MENU(VERB)	\
 	DXX_MENUITEM(VERB, MENU, "HUD Options...", opt_gr_hudmenu)	\
 	DXX_MENUITEM(VERB, SLIDER, TXT_BRIGHTNESS, opt_gr_brightness, gr_palette_get_gamma(), 0, 16)	\
 	DXX_MENUITEM(VERB, TEXT, "", blank1)	\
@@ -2170,9 +2178,12 @@ window_event_result graphics_config_menu::event_handler(const d_event &event)
 		case event_type::newmenu_selected:
 		{
 			auto &citem = static_cast<const d_select_event &>(event).citem;
+#if !DXX_USE_MISTER_HYBRID
 			if (citem == opt_gr_screenres)
 				window_create<screen_resolution_menu>();
-			else if (citem == opt_gr_hudmenu)
+			else
+#endif
+			if (citem == opt_gr_hudmenu)
 				hud_config();
 			return window_event_result::handled;		// stay in menu
 		}

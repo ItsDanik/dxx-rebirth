@@ -7,6 +7,7 @@
 // Holds the main init and de-init functions for arch-related program parts
 
 #include <SDL.h>
+#include "mister_port.h"
 #include "songs.h"
 #include "key.h"
 #include "digi.h"
@@ -63,6 +64,9 @@ arch_atexit arch_init()
 {
 	int t;
 
+#if DXX_USE_MISTER_HYBRID
+	MiSTer_Init();
+#endif
 	if (SDL_Init(SDL_INIT_VIDEO) < 0)
 		Error("SDL library initialisation failed: %s.",SDL_GetError());
 #if DXX_USE_SDLIMAGE

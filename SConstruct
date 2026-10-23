@@ -3,6 +3,9 @@
 # $Format:%H$
 
 # needed imports
+# Python before 3.14 evaluates annotations when a function is defined, and
+# some below name a class that is not complete then
+from __future__ import annotations
 from collections import (defaultdict, Counter as collections_counter)
 import collections.abc
 from dataclasses import dataclass
@@ -1481,6 +1484,14 @@ int main(int argc,char**argv)
 			"software renderer"
 }''')
 
+	@_custom_test
+	def _check_user_settings_mister_hybrid(self,context):
+		user_settings = self.user_settings
+		mister_hybrid = user_settings.mister_hybrid
+		if mister_hybrid and (user_settings.opengl or not user_settings.sdl2):
+			raise SCons.Errors.StopError('mister_hybrid=1 requires sdl2=1 opengl=0.')
+		self._result_check_user_setting(context, mister_hybrid, 'MiSTer hybrid core support', cpp_defines_with_condition_value=('DXX_USE_MISTER_HYBRID',))
+
 	def _result_check_user_setting(self, context, condition, label, cpp_defines_if_enabled: typing.Optional[tuple[tuple]]=None, cpp_defines_with_condition_value: typing.Optional[tuple[str]]=None, int=int):
 		assert cpp_defines_if_enabled or cpp_defines_with_condition_value
 		if cpp_defines_if_enabled and condition:
@@ -1774,8 +1785,6 @@ static void terminate_handler()
 	def check_libSDL2(self,context,_guess_flags={
 			'LIBS' : ['SDL2'] if sys.platform != 'darwin' else [],
 		}):
-		if not self.user_settings.opengl:
-			raise SCons.Errors.StopError('Rebirth does not support SDL2 without OpenGL.  Set opengl=1 or sdl2=0.')
 		self._check_libSDL(context, '2', _guess_flags)
 
 	def _check_libSDL(self,context,sdl2,guess_flags):
@@ -3988,6 +3997,7 @@ class DXXCommon(LazyObjectConstructor):
 					('opengles', self.default_opengles, 'build with OpenGL ES support'),
 					('editor', False, 'include editor into build (!EXPERIMENTAL!)'),
 					('sdl2', self.default_sdl2, 'use libSDL2+SDL2_mixer (!EXPERIMENTAL!)'),
+					('mister_hybrid', False, 'build for the MiSTer hybrid core (requires sdl2=1 opengl=0 and the SDL2 of Hybrid_MiSTer)'),
 					# Build with SDL_Image support for PCX file support
 					# Currently undocumented because the user experience
 					# without PCX support is ugly, so this should always
@@ -5089,6 +5099,9 @@ class DXXArchive(DXXCommon):
 )),
 		__get_objects_use_joystick_sdl2=DXXCommon.create_lazy_object_getter((
 'common/arch/sdl/gamecontroller.cpp',
+)), \
+		__get_objects_use_mister_hybrid=DXXCommon.create_lazy_object_getter((
+'common/arch/mister/mister_port.cpp',
 ))
 		):
 		value = list(__get_objects_common(self))
@@ -5104,6 +5117,8 @@ class DXXArchive(DXXCommon):
 		else:
 			if user_settings.max_joysticks:
 				extend(__get_objects_use_joystick_sdl2(self))
+		if user_settings.mister_hybrid:
+			extend(__get_objects_use_mister_hybrid(self))
 		extend(self.platform_settings.get_platform_objects())
 		return value
 

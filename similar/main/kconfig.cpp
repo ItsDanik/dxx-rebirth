@@ -216,6 +216,26 @@ struct kc_menu : window
 
 }
 
+#if DXX_USE_MISTER_HYBRID
+/* The MiSTer joystick has the buttons of the core's "J1," list in order:
+ * Fire Primary, Fire Secondary, Accelerate, Reverse, Slide, Cycle
+ * Primary, Cycle Secondary, Menu.  The left stick and the d-pad turn,
+ * the right stick slides.
+ */
+#define DXX_MISTER_DEFAULT(M,D)	M
+/* In the controls menu: Select clears a binding, holding Start resets
+ * all of them.
+ */
+constexpr unsigned kc_joy_button_delete{6};
+constexpr unsigned kc_joy_button_reset{7};
+#else
+#define DXX_MISTER_DEFAULT(M,D)	D
+#if DXX_MAX_JOYSTICKS && SDL_MAJOR_VERSION == 2
+constexpr unsigned kc_joy_button_delete{SDL_CONTROLLER_BUTTON_RIGHTSTICK};
+constexpr unsigned kc_joy_button_reset{SDL_CONTROLLER_BUTTON_START};
+#endif
+#endif
+
 constexpr struct player_config::KeySettings DefaultKeySettings{
 	/* Keyboard */ {{{
 		// Pitch forward
@@ -297,13 +317,13 @@ constexpr struct player_config::KeySettings DefaultKeySettings{
 		// Fire secondary
 		0x1,
 		// Accelerate
-		0xff,
+		DXX_MISTER_DEFAULT(0x2, 0xff),
 		// Reverse
-		0xff,
+		DXX_MISTER_DEFAULT(0x3, 0xff),
 		// Fire flare
 		0xff,
 		// Slide on
-		0xff,
+		DXX_MISTER_DEFAULT(0x4, 0xff),
 		// Slide left
 		0xff,
 		// Slide right
@@ -335,11 +355,11 @@ constexpr struct player_config::KeySettings DefaultKeySettings{
 		// Invert turn
 		0x0,
 		// Slide left/right
-		0xff,
+		DXX_MISTER_DEFAULT(0x2, 0xff),
 		// Invert slide left/right
 		0x0,
 		// Slide up/down
-		0xff,
+		DXX_MISTER_DEFAULT(0x3, 0xff),
 		// Invert slide up/down
 		0x0,
 		// Bank left/right
@@ -362,9 +382,9 @@ constexpr struct player_config::KeySettings DefaultKeySettings{
 		// Afterburner
 		0xff,
 		// Cycle primary
-		0xff,
+		DXX_MISTER_DEFAULT(0x5, 0xff),
 		// Cycle secondary
-		0xff,
+		DXX_MISTER_DEFAULT(0x6, 0xff),
 		// Headlight
 		0xff,
 #endif
@@ -400,9 +420,9 @@ constexpr struct player_config::KeySettings DefaultKeySettings{
 		0xff,
 #if DXX_BUILD_DESCENT == 1
 		// Cycle primary
-		0xff,
+		DXX_MISTER_DEFAULT(0x5, 0xff),
 		// Cycle secondary
-		0xff,
+		DXX_MISTER_DEFAULT(0x6, 0xff),
 #elif DXX_BUILD_DESCENT == 2
 		// Afterburner (second binding)
 		0xff,
@@ -422,7 +442,7 @@ constexpr struct player_config::KeySettings DefaultKeySettings{
 		0xff, 0xff,
 #endif
 		// Menu
-		0xff, 0xff
+		DXX_MISTER_DEFAULT(0x7, 0xff), 0xff
 	}}},
 #endif
 	/* Mouse */ {{{
@@ -1238,8 +1258,8 @@ window_event_result kc_menu::event_handler(const d_event &event)
 #if SDL_MAJOR_VERSION == 2
 	const bool skip_translate = !changing &&
 		(event.type == event_type::joystick_button_down || event.type == event_type::joystick_button_up) &&
-		(event_joystick_get_button(event) == SDL_CONTROLLER_BUTTON_START ||
-		 event_joystick_get_button(event) == SDL_CONTROLLER_BUTTON_RIGHTSTICK);
+		(event_joystick_get_button(event) == kc_joy_button_reset ||
+		 event_joystick_get_button(event) == kc_joy_button_delete);
 	if (!skip_translate)
 #endif
 	if (!changing && joy_translate_menu_key(event))
@@ -1292,12 +1312,12 @@ window_event_result kc_menu::event_handler(const d_event &event)
 			else if (!changing)
 			{
 				const auto button = event_joystick_get_button(event);
-				if (button == SDL_CONTROLLER_BUTTON_RIGHTSTICK)
+				if (button == kc_joy_button_delete)
 				{
 					mitems[citem].value = 255;
 					return window_event_result::handled;
 				}
-				if (button == SDL_CONTROLLER_BUTTON_START)
+				if (button == kc_joy_button_reset)
 				{
 					start_press_time = timer_query();
 					return window_event_result::handled;
@@ -1307,7 +1327,7 @@ window_event_result kc_menu::event_handler(const d_event &event)
 			break;
 #if SDL_MAJOR_VERSION == 2
 		case event_type::joystick_button_up:
-			if (!changing && event_joystick_get_button(event) == SDL_CONTROLLER_BUTTON_START && start_press_time)
+			if (!changing && event_joystick_get_button(event) == kc_joy_button_reset && start_press_time)
 			{
 				const auto held = timer_query() - start_press_time;
 				start_press_time = 0;

@@ -15,6 +15,7 @@
 #include <SDL.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include "mister_port.h"
 #include "event.h"
 #include "key.h"
 #include "mouse.h"
@@ -76,6 +77,9 @@ static void event_notify_end_loop()
 
 window_event_result event_poll()
 {
+#if DXX_USE_MISTER_HYBRID
+	MiSTer_CheckCore();
+#endif
 	event_poll_state state;
 	event_notify_begin_loop();
 

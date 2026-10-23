@@ -873,9 +873,24 @@ template void gr_printt<gr_ustring>(grs_canvas &, const grs_font &, int, int, co
 //remap a font, re-reading its data & palette
 static void gr_remap_font(grs_font *font);
 
+namespace {
+
+/* The palette that every font that is open has its colours from, if there
+ * is one.  The menus load the palette for every frame they draw, which
+ * remaps the fonts, and nearly always to the palette they have already:
+ * that is thousands of searches for the closest colour and all font files
+ * read again.
+ */
+palette_array_t fonts_palette;
+bool fonts_palette_valid;
+
+}
+
 //remap (by re-reading) all the color fonts
 void gr_remap_color_fonts()
 {
+	if (fonts_palette_valid && fonts_palette == gr_palette)
+		return;
 #if DXX_USE_EDITOR
 	gr_remap_font(ui_small_font.get());
 	gr_remap_font(editor_font.get());
@@ -884,6 +899,8 @@ void gr_remap_color_fonts()
 	{
 		gr_remap_font(gf.font.get());
 	}
+	fonts_palette = gr_palette;
+	fonts_palette_valid = true;
 }
 
 namespace {
@@ -907,6 +924,11 @@ static void grs_font_read(grs_font *gf, NamedPHYSFS_File fp)
 
 static std::unique_ptr<grs_font> gr_internal_init_font(const std::span<const char> fontname)
 {
+	/* A font that gets its colours from another palette than the others
+	 * have theirs from: all of them are due again.
+	 */
+	if (fonts_palette_valid && fonts_palette != gr_palette)
+		fonts_palette_valid = false;
 	color_palette_index *ptr;
 	color_palette_index *ft_data;
 	struct {

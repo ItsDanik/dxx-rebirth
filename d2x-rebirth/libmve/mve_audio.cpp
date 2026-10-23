@@ -38,7 +38,11 @@ static void processSwath(std::span<int16_t> fout, const uint8_t *const data, std
     {
 		auto &o = offsets[i & 1];
 		o += audio_exp_table[d];
-		fout.front() = std::ranges::clamp(o, int32_t{INT16_MIN}, int32_t{INT16_MAX});
+		/* The sum wraps around at 16 bits.  The table counts on that: its
+		 * entries from 120 to 137 are steps of more than 32767, wrapped.
+		 * Clamped instead, the sound sticks to full scale.
+		 */
+		fout.front() = static_cast<int16_t>(static_cast<uint16_t>(o));
 		fout = fout.subspan<1>();
     }
 }

@@ -10,6 +10,7 @@
  *
  */
 
+#include "mister_port.h"
 #include "dxxsconf.h"
 #include <algorithm>
 #include <stdio.h>
@@ -150,6 +151,9 @@ static void con_scrub_markup(const std::span<char> buffer)
 
 static void con_print_file(const char *const buffer)
 {
+#if DXX_USE_MISTER_HYBRID
+	const MiSTer_StatsTimer stats_timer{1};
+#endif
 	char buf[1024];
 #if !DXX_CONSOLE_SHOW_TIME_STDOUT
 #ifndef _WIN32

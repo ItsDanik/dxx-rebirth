@@ -13,6 +13,7 @@
 #include "window.h"
 #include "event.h"
 #include "messagebox.h"
+#include "mister_port.h"
 
 namespace dcx {
 
@@ -20,6 +21,10 @@ static void display_sdl_alert(const char *message, int error)
 {
 	window	*wind;
 
+#if DXX_USE_MISTER_HYBRID
+	if (error && MiSTer_ShowError(message))
+		return;
+#endif
 	// Handle Descent's windows properly
 	if ((wind = window_get_front()))
 		wind->send_event(d_event{event_type::window_deactivated});

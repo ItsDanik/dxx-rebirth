@@ -296,6 +296,19 @@ void ReadConfigFile(CCfg &CGameCfg, Cfg &GameCfg)
 	CGameCfg.Multisample = 0;
 	CGameCfg.FPSIndicator = 0;
 	CGameCfg.Grabinput = true;
+#if DXX_USE_MISTER_HYBRID && DXX_USE_ADLMIDI
+	/* The music as a Sound Blaster played it, with the instruments of the
+	 * game.  Two emulated OPL3 chips are what the ARM of the MiSTer can
+	 * spare.
+	 */
+	CGameCfg.ADLMIDI_enabled = true;
+	CGameCfg.ADLMIDI_num_chips = 2;
+#if DXX_BUILD_DESCENT == 1
+	CGameCfg.ADLMIDI_bank = 2;
+#elif DXX_BUILD_DESCENT == 2
+	CGameCfg.ADLMIDI_bank = 6;
+#endif
+#endif
 
 	auto &&[infile, physfserr]{PHYSFSX_openReadBuffered_updateCase(dxx_descent_cfg_name)};
 	if (!infile)

@@ -27,6 +27,7 @@ COPYRIGHT 1993-1999 PARALLAX SOFTWARE CORPORATION.  ALL RIGHTS RESERVED.
 #include <string.h>
 #include <ranges>
 
+#include "mister_port.h"
 #include "pstypes.h"
 #include "strutil.h"
 #include "inferno.h"
@@ -480,7 +481,14 @@ bitmap_index piggy_find_bitmap(const std::span<const char> entry_name)
 
 int piggy_find_sound(const std::span<const char> name)
 {
-	const auto i = hashtable_search(&AllDigiSndNames, name.data());
+	/* The name is not always terminated: ds_load passes the part of a
+	 * filename before its extension.
+	 */
+	std::array<char, 16> terminated_name{};
+	if (name.size() >= terminated_name.size())
+		return 255;
+	std::memcpy(terminated_name.data(), name.data(), name.size());
+	const auto i = hashtable_search(&AllDigiSndNames, terminated_name.data());
 	if ( i < 0 )
 		return 255;
 	return i;
@@ -697,13 +705,15 @@ properties_init_result properties_init(d_level_shared_robot_info_state &LevelSha
 		for (; !sbuf.empty(); sbuf = sbuf.subspan<sizeof(DiskSoundHeader)>())
 		{
 			const auto sndh{DiskSoundHeader_read(sbuf.first<sizeof(DiskSoundHeader)>())};
+			/* Must be read before piggy_register_sound counts the sound */
+			const auto sound_index{Num_sound_files};
 			piggy_register_sound(digi_sound{
 				.length{sndh.length},
 				.freq{sound_sample_rate::_11k},
 				.data{digi_sound::allocated_data::build_deferred_borrowed_pointer(game_sound_offset{sndh.offset + header_size + uint32_t{sizeof(int) * 2} + Pigdata_start})}
 				}, std::span(sndh.name).first<8>());
 		if (PCSharePig)
-			SoundCompressed[Num_sound_files] = sndh.data_length;
+			SoundCompressed[sound_index] = sndh.data_length;
                 sbytes += sndh.length;
 	}
 
@@ -1284,6 +1294,9 @@ void piggy_bitmap_page_in(GameBitmaps_array &GameBitmaps, const bitmap_index ent
 		if (!Piggy_fp) [[unlikely]]
 			/* `Piggy_fp` will only be `nullptr` if a game data file is missing. */
 			return;
+#if DXX_USE_MISTER_HYBRID
+		const MiSTer_StatsTimer stats_timer{0};
+#endif
 		pause_game_world_time p;
 
 	ReDoIt:

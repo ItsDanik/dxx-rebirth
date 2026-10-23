@@ -257,9 +257,15 @@ void new_player_config()
 		false
 #endif
 	};
+#if DXX_USE_MISTER_HYBRID
+	/* The joysticks and the mouse of the core are always there */
+	PlayerCfg.ControlType = CONTROL_USING_JOYSTICK | CONTROL_USING_MOUSE;
+	static_cast<void>(game_controller_found);
+#else
 	PlayerCfg.ControlType = game_controller_found
 		? CONTROL_USING_JOYSTICK  // Enable joystick by default for SDL2 GameController
 		: 0; // Assume keyboard
+#endif
 #if DXX_MAX_JOYSTICKS && SDL_MAJOR_VERSION == 2
 	if (game_controller_found)
 		PlayerCfg.KeySettings.Joystick = DefaultKeySettingsGameController;

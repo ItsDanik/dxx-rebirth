@@ -125,6 +125,9 @@ extern void digi_init_sounds();
 extern void digi_sync_sounds();
 
 extern void digi_set_digi_volume( int dvolume );
+#if DXX_USE_MISTER_HYBRID
+void digi_mister_set_volumes();
+#endif
 
 extern void digi_pause_digi_sounds();
 extern void digi_resume_digi_sounds();

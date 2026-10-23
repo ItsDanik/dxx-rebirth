@@ -1019,7 +1019,7 @@ static window_event_result newmenu_mouse(const d_event &event, newmenu *menu, co
 						 * saved_text if the caller pre-populated it,
 						 * otherwise clear.
 						 */
-						if (im.saved_text[0])
+						if (im.saved_text[0] && d_stricmp(im.saved_text.data(), TXT_EMPTY))	// the placeholder itself is not a description
 							strcpy(citem.text, im.saved_text);
 						else
 							citem.text[0] = 0;
@@ -1095,6 +1095,56 @@ static window_event_result newmenu_key_command(const d_event &event, newmenu *co
 
 	old_choice = menu->citem;
 	auto &citem = *std::next(menu->items.begin(), menu->citem);
+
+#if DXX_USE_MISTER_HYBRID
+	/* Typing with the gamepad: up and down change the last character,
+	 * right adds one, left takes one away (as the keyboard does, below).
+	 */
+	if (event_key_get_source(event) == d_event::source::joystick && (k == KEY_UP || k == KEY_DOWN || k == KEY_RIGHT) && menu->citem > -1 &&
+		(citem.type == nm_type::input || (citem.type == nm_type::input_menu && citem.imenu().group == 1)))
+	{
+		static constexpr char pad_chars[]{"abcdefghijklmnopqrstuvwxyz0123456789 -_.:!?"};
+		constexpr int pad_char_count{sizeof(pad_chars) - 1};
+		const auto im{citem.input_or_menu()};
+		const auto allowed_chars{im->allowed_chars};
+		/* The next character from `c` that the field takes.  From a
+		 * character that is not in the list, the first or the last one.
+		 */
+		const auto step_char{[allowed_chars](const char c, const int step) {
+			int i{-1};
+			for (int n{0}; n < pad_char_count; ++n)
+				if (pad_chars[n] == tolower(static_cast<unsigned>(c)))
+					i = n;
+			if (i < 0 && step < 0)
+				i = 0;
+			for (int n{0}; n < pad_char_count; ++n)
+			{
+				i = (i + step + pad_char_count) % pad_char_count;
+				if (char_allowed(pad_chars[i], allowed_chars))
+					return pad_chars[i];
+			}
+			return c;
+		}};
+		if (citem.value == -1)
+			citem.value = strlen(citem.text);
+		if (k == KEY_RIGHT || citem.value == 0)
+		{
+			/* A new character: the same again, which is the nearest to
+			 * what comes next more often than "a" is.
+			 */
+			if (citem.value < im->text_len)
+			{
+				citem.text[citem.value] = citem.value > 0 ? citem.text[citem.value - 1] : step_char(0, 1);
+				citem.text[++citem.value] = 0;
+			}
+		}
+		else
+			citem.text[citem.value - 1] = step_char(citem.text[citem.value - 1], k == KEY_UP ? 1 : -1);
+		if (citem.type == nm_type::input)
+			menu->event_handler(d_change_event{menu->citem});
+		return window_event_result::handled;
+	}
+#endif
 
 	switch( k )	{
 		case KEY_HOME:
@@ -1177,7 +1227,7 @@ static window_event_result newmenu_key_command(const d_event &event, newmenu *co
 					 * saved_text if the caller pre-populated it,
 					 * otherwise clear.
 					 */
-					if (im.saved_text[0])
+					if (im.saved_text[0] && d_stricmp(im.saved_text.data(), TXT_EMPTY))	// the placeholder itself is not a description
 						strcpy(citem.text, im.saved_text);
 					else
 						citem.text[0] = 0;

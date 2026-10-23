@@ -188,8 +188,10 @@ static void do_timer_wait(void)
 #elif defined(macintosh)
 	Delay(ts.tv_sec * 1000 + ts.tv_nsec / 1000000, NULL);
 #else
-	if (nanosleep(&ts, NULL) == -1  &&  errno == EINTR)
-		exit(1);
+	/* A signal is no reason to leave the game: sleep the rest */
+	while (nanosleep(&ts, &ts) == -1 && errno == EINTR)
+	{
+	}
 #endif
 
  end:
@@ -228,16 +230,22 @@ struct MVE_audio_clamp
 }
 
 static void mve_audio_callback(void *userdata, unsigned char *stream, int len);
+/* times the mixer wanted sound and the movie had none decoded: for the log */
+static unsigned mve_audio_underruns, mve_audio_callbacks;
 
 static void mve_audio_callback(void *const vstream, unsigned char *stream, int len)
 {
 	auto &mvestream = *reinterpret_cast<MVESTREAM *>(vstream);
 	const std::lock_guard lock{mvestream.mve_audio_mutex};
+	++mve_audio_callbacks;
 #ifdef DXX_REPORT_TOTAL_LENGTH
 	int total{0};
 #endif
 	if (mvestream.mve_audio_bufhead == mvestream.mve_audio_buftail)
+	{
+		++mve_audio_underruns;
 		return /* 0 */;
+	}
 
 	//con_printf(CON_CRITICAL, "+ <%d (%d), %d, %d>", mvestream.mve_audio_bufhead, mvestream.mve_audio_curbuf_curpos, mvestream.mve_audio_buftail, len);
 
@@ -267,6 +275,8 @@ static void mve_audio_callback(void *const vstream, unsigned char *stream, int l
 #endif
 	/*    return total; */
 
+	if (len != 0 && mvestream.mve_audio_bufhead == mvestream.mve_audio_buftail)
+		++mve_audio_underruns;
 	if (len != 0                                                                        /* ospace remaining  */
 		&&  mvestream.mve_audio_bufhead != mvestream.mve_audio_buftail)                                     /* buffers remaining */
 	{
@@ -337,6 +347,84 @@ bool MVESTREAM::drain_mve_audio_stream()
 }
 #endif
 
+#if DXX_USE_MISTER_HYBRID && DXX_USE_SDLMIXER
+namespace {
+
+/* The sound of a movie is 22050Hz, the mixer plays 44100Hz.  The audio
+ * streams of SDL convert with a filter that is made for quality: on the
+ * ARM of the MiSTer, converting the sound took more time than decoding the
+ * picture, and the movies stuttered.  This interpolates between two
+ * samples, which is all the sound of these movies needs.
+ */
+struct mister_movie_resampler
+{
+	std::array<int16_t, 2> previous;	// the last frame of the block before
+	uint32_t phase;	// 16.16, between `previous` and the first frame
+};
+
+mister_movie_resampler mister_movie_audio;
+
+/* Returns the block as the mixer plays it, or nothing if the mixer has a
+ * format this does not know, for SDL to convert the block.
+ */
+::dcx::unique_span<int16_t> mister_convert_movie_audio(const int16_t *const data, const unsigned bytes, const SDL_AudioSpec &spec)
+{
+	int out_freq;
+	Uint16 out_format;
+	int out_channels;
+	if (!Mix_QuerySpec(&out_freq, &out_format, &out_channels) || out_format != AUDIO_S16SYS || out_channels != 2 || out_freq <= 0 || spec.freq <= 0)
+		return {};
+	const bool sixteen{spec.format != AUDIO_U8};
+	if (sixteen && spec.format != AUDIO_S16SYS)
+		return {};
+	const unsigned channels{spec.channels == 2 ? 2u : 1u};
+	const unsigned frames{bytes / (channels * (sixteen ? 2 : 1))};
+	if (!frames)
+		return {};
+	const auto bytes8{reinterpret_cast<const uint8_t *>(data)};
+	const auto read_frame{[=](const unsigned i) -> std::array<int16_t, 2> {
+		const auto sample{[=](const unsigned n) -> int16_t {
+			return sixteen ? data[n] : static_cast<int16_t>((bytes8[n] - 128) << 8);
+		}};
+		if (channels == 2)
+			return {{sample(i * 2), sample(i * 2 + 1)}};
+		const auto mono{sample(i)};
+		return {{mono, mono}};
+	}};
+	const uint32_t step{static_cast<uint32_t>((static_cast<uint64_t>(spec.freq) << 16) / out_freq)};
+	auto &state{mister_movie_audio};
+	/* How many frames come out: one for every `step` on the way from
+	 * `previous` to the last frame of the block.
+	 */
+	const uint64_t span{(static_cast<uint64_t>(frames) << 16) - state.phase};
+	const std::size_t out_frames = (span + step - 1) / step;
+	::dcx::unique_span<int16_t> result{out_frames * 2};
+	auto out{result.get()};
+	auto a{state.previous};
+	auto b{read_frame(0)};
+	unsigned index{0};
+	uint32_t phase{state.phase};
+	for (std::size_t n{0}; n < out_frames; ++n)
+	{
+		const int32_t frac{static_cast<int32_t>(phase)};
+		*out++ = static_cast<int16_t>(a[0] + (((b[0] - a[0]) * frac) >> 16));
+		*out++ = static_cast<int16_t>(a[1] + (((b[1] - a[1]) * frac) >> 16));
+		phase += step;
+		for (; phase >= 0x10000 && index < frames; phase -= 0x10000)
+		{
+			a = b;
+			if (++index < frames)
+				b = read_frame(index);
+		}
+	}
+	state.previous = read_frame(frames - 1);
+	state.phase = phase & 0xffff;
+	return result;
+}
+
+}
+#endif
+
 MVESTREAM::handle_result MVESTREAM::handle_mve_segment_initaudiobuffers(unsigned char minor, const unsigned char *data)
 {
 	if (mve_audio_enabled == MVE_play_sounds::silent)
@@ -368,6 +456,9 @@ MVESTREAM::handle_result MVESTREAM::handle_mve_segment_initaudiobuffers(unsigned
 				sample_rate, desired_buffer, stereo ? 1 : 0, bitsize ? 16 : 8, compressed ? 1 : 0);
 	}
 
+#if DXX_USE_MISTER_HYBRID && DXX_USE_SDLMIXER
+	mister_movie_audio = {};
+#endif
 	mve_audio_spec = std::make_unique<SDL_AudioSpec>();
 	{
 		auto &s = *mve_audio_spec;
@@ -513,6 +604,13 @@ MVESTREAM::handle_result MVESTREAM::handle_mve_segment_audioframedata(const mve_
 			// MVE segment boundaries.
 #if DXX_USE_SDLMIXER
 			if (!CGameArg.SndDisableSdlMixer) {
+#if DXX_USE_MISTER_HYBRID
+				if (auto converted{mister_convert_movie_audio(p.get(), nsamp, *mve_audio_spec)}; converted.get())
+				{
+					p = std::move(converted);
+				}
+				else
+#endif
 #if SDL_MAJOR_VERSION == 2
 				static_cast<void>(mve_audio_spec);
 				if (SDL_AudioStreamPut(mve_audio_stream.get(), p.get(), nsamp))
@@ -735,6 +833,9 @@ MVE_StepStatus MVE_rmStepMovie(MVESTREAM &mve)
 void MVE_rmEndMovie(std::unique_ptr<MVESTREAM> stream)
 {
 	timer_stop();
+	if (mve_audio_callbacks)
+		con_printf(CON_NORMAL, "movie sound: the mixer asked %u times, %u times there was not enough decoded", mve_audio_callbacks, mve_audio_underruns);
+	mve_audio_callbacks = mve_audio_underruns = 0;
 
 	if (stream->mve_audio_spec) {
 		// MD2211: if using SDL_Mixer, we never reinit sound, hence never close it

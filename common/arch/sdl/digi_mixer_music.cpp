@@ -18,6 +18,7 @@
 #include <string.h>
 #include <stdlib.h>
 
+#include "mister_port.h"
 #include "args.h"
 #include "digi.h"
 #include "hmp.h"
@@ -357,6 +358,9 @@ void mix_free_music()
 void mix_set_music_volume(int vol)
 {
 	vol *= MIX_MAX_VOLUME/8;
+#if DXX_USE_MISTER_HYBRID
+	vol = MiSTer_MusicVolume(vol);
+#endif
 	Mix_VolumeMusic(vol);
 }
 
@@ -458,7 +462,9 @@ static void mix_adlmidi(void *, Uint8 *stream, int len)
 	adl_playFormat(adlmidi, sampleCount, stream, stream + format.containerSize, &format);
 
 	const auto samples = reinterpret_cast<int16_t *>(stream);
-	const auto amplify = [](int16_t i) { return sat16(2 * i); };
+	/* A hooked music player gets no volume from SDL_mixer */
+	const int volume{Mix_VolumeMusic(-1)};
+	const auto amplify = [volume](int16_t i) { return sat16(2 * i * volume / MIX_MAX_VOLUME); };
 	std::transform(samples, samples + sampleCount, samples, amplify);
 }
 #endif

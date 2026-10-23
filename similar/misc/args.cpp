@@ -152,6 +152,16 @@ static void InitGameArg()
 {
 	CGameArg.SysMaxFPS = MAXIMUM_FPS;
 	CGameArg.SysRenderZoomAdjustment = 0;
+#if DXX_USE_MISTER_HYBRID && DXX_USE_SDLMIXER && DXX_FEATURE_INTERNAL_RESAMPLER_EMULATE_SDL1
+	/* A sound is converted for the mixer when it is first played.  The
+	 * converter of SDL takes 50 to 100 milliseconds for that on the ARM
+	 * of the MiSTer: the game stood still for some frames at the first
+	 * shot, the first explosion, the first door.  This one repeats
+	 * samples, which takes no time and is how the sounds were heard
+	 * from a sound card.
+	 */
+	CGameArg.SndMixerMethod = digi_mixer_method::emulate_sdl1;
+#endif
 #if DXX_USE_UDP
 	CGameArg.MplUdpHostAddr = UDP_MANUAL_ADDR_DEFAULT;
 #if DXX_USE_TRACKER

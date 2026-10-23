@@ -14,6 +14,7 @@
 #include <vector>
 #include <tuple>
 #include <type_traits>
+#include "mister_port.h"
 #include "joy.h"
 #include "key.h"
 #include "dxxerror.h"
@@ -224,12 +225,61 @@ window_event_result joy_button_handler(const SDL_JoyButtonEvent *const jbe)
 }
 #endif
 
+#if DXX_USE_MISTER_HYBRID && DXX_MAX_HATS_PER_JOYSTICK && DXX_MAX_AXES_PER_JOYSTICK
+namespace {
+
+/* The game turns with the keyboard or with an axis.  The d-pad is a hat,
+ * which the game only knows as four buttons, so it also pushes the left
+ * stick all the way: the d-pad then does what the left stick does.
+ */
+struct mister_dpad_state
+{
+	std::array<int, 2> stick;	// the left stick itself
+	std::array<int, 2> dpad;	// -127, 0, 127
+};
+
+std::array<mister_dpad_state, DXX_MAX_JOYSTICKS> mister_dpad;
+
+mister_dpad_state &get_mister_dpad_state(const d_physical_joystick &joystick)
+{
+	return mister_dpad[std::distance(std::as_const(SDL_Joysticks).data(), &joystick)];
+}
+
+int get_mister_axis_value(const mister_dpad_state &state, const unsigned axis)
+{
+	return state.dpad[axis] ? state.dpad[axis] : state.stick[axis];
+}
+
+window_event_result send_mister_dpad_axis(d_physical_joystick &joystick, const unsigned axis, const int value)
+{
+	auto &axis_value{joystick.axis_value()[axis]};
+	if (axis_value == value)
+		return window_event_result::ignored;
+	d_event_joystick_moved event{event_type::joystick_moved};
+	event.value = axis_value = value;
+	event.axis = joystick.axis_map()[axis];
+	return event_send(event);
+}
+
+}
+#endif
+
 #if DXX_MAX_HATS_PER_JOYSTICK
 window_event_result joy_hat_handler(const SDL_JoyHatEvent *const jhe)
 {
 	auto *const joystick = find_joystick(jhe->which);
 	if (!joystick)
 		return window_event_result::ignored;
+#if DXX_USE_MISTER_HYBRID && DXX_MAX_AXES_PER_JOYSTICK
+	if (jhe->hat == 0)
+	{
+		auto &state{get_mister_dpad_state(*joystick)};
+		state.dpad[0] = (jhe->value & SDL_HAT_LEFT) ? -127 : (jhe->value & SDL_HAT_RIGHT) ? 127 : 0;
+		state.dpad[1] = (jhe->value & SDL_HAT_UP) ? -127 : (jhe->value & SDL_HAT_DOWN) ? 127 : 0;
+		for (const unsigned axis : {0u, 1u})
+			send_mister_dpad_axis(*joystick, axis, get_mister_axis_value(state, axis));
+	}
+#endif
 	int hat = joystick->hat_map()[jhe->hat];
 	window_event_result highest_result(window_event_result::ignored);
 	//Save last state of the hat-button
@@ -330,12 +380,24 @@ window_event_result joy_axis_handler(const SDL_JoyAxisEvent *const jae)
 		return window_event_result::ignored;
 	const auto axis = js->axis_map()[jae->axis];
 	auto &axis_value = js->axis_value()[jae->axis];
+#if DXX_USE_MISTER_HYBRID && DXX_MAX_HATS_PER_JOYSTICK
+	int new_axis_value{jae->value / 256};
+	if (jae->axis < 2)
+	{
+		/* The d-pad holds the left stick while it is pressed */
+		auto &state{get_mister_dpad_state(*js)};
+		state.stick[jae->axis] = new_axis_value;
+		new_axis_value = get_mister_axis_value(state, jae->axis);
+	}
+#else
+	const int new_axis_value{jae->value / 256};
+#endif
 	// inaccurate stick is inaccurate. SDL might send SDL_JoyAxisEvent even if the value is the same as before.
-	if (axis_value == jae->value/256)
+	if (axis_value == new_axis_value)
 		return window_event_result::ignored;
 
 	d_event_joystick_moved event{event_type::joystick_moved};
-	event.value = axis_value = jae->value/256;
+	event.value = axis_value = new_axis_value;
 	event.axis = axis;
 	con_printf(CON_DEBUG, "Sending event event_type::joystick_moved, axis: %d, value: %d",event.axis, event.value);
 
@@ -422,6 +484,22 @@ void joy_init()
 			for (auto &&[idx, value] : enumerate(partial_range(joystick.button_map(), n_buttons), 1))
 			{
 				cf_assert(idx <= DXX_MAX_BUTTONS_PER_JOYSTICK);
+#if DXX_USE_MISTER_HYBRID
+				/* In menus the buttons with a game action do nothing,
+				 * except the one that opens the game's menu, which closes
+				 * it too.  Confirm and go back are the two buttons the OSD
+				 * of the core names (and its two spare ones).
+				 */
+				switch (idx - 1)
+				{
+					case mister_joy_button::core_menu_ok:
+					case mister_joy_button::menu_ok: joy_key_map[joystick_n_buttons] = KEY_ENTER; break;
+					case mister_joy_button::menu:
+					case mister_joy_button::core_menu_back:
+					case mister_joy_button::menu_back: joy_key_map[joystick_n_buttons] = KEY_ESC; break;
+					default: break;
+				}
+#else
 				switch (idx)
 				{
 					case 1: joy_key_map[joystick_n_buttons] = KEY_ENTER; break;
@@ -430,6 +508,7 @@ void joy_init()
 					case 4: joy_key_map[joystick_n_buttons] = KEY_DELETE; break;
 					default: break;
 				}
+#endif
 				auto &text = joybutton_text[joystick_n_buttons];
 				value = joystick_n_buttons++;
 				snprintf(text.data(), text.size(), "J%u B%u", i + 1, idx);

@@ -817,7 +817,20 @@ static window_event_result HandleSystemKey(const int key, const d_event::source 
 			case KEY_ESC:
 			{
 				const bool allow_saveload{!(Game_mode & GM_MULTI) || (+(Game_mode & GM_MULTI_COOP) && Player_num == 0)};
+#if DXX_USE_MISTER_HYBRID
+				/* The pad has no button for the automap, and the first entry
+				 * is what a second press of the button picks.
+				 */
+				const auto mister_choice = nm_messagebox_str(menu_title{nullptr}, allow_saveload ? nm_messagebox_tie("Automap", TXT_OPTIONS_, "Save Game...", TXT_LOAD_GAME, "Abort Game") : nm_messagebox_tie("Automap", TXT_OPTIONS_, "Abort Game"), menu_subtitle{"Game Menu"});
+				if (mister_choice == 0)
+				{
+					Controls.state.automap = 1;
+					return window_event_result::handled;
+				}
+				const auto choice = (mister_choice == (allow_saveload ? 4 : 2)) ? 0 : mister_choice;
+#else
 				const auto choice = nm_messagebox_str(menu_title{nullptr}, allow_saveload ? nm_messagebox_tie("Abort Game", TXT_OPTIONS_, "Save Game...", TXT_LOAD_GAME) : nm_messagebox_tie("Abort Game", TXT_OPTIONS_), menu_subtitle{"Game Menu"});
+#endif
 				switch(choice)
 				{
 					case 0:
