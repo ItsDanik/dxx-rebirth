@@ -219,8 +219,8 @@ struct kc_menu : window
 #if DXX_USE_MISTER_HYBRID
 /* The MiSTer joystick has the buttons of the core's "J1," list in order:
  * Fire Flare, Drop Bomb, Accelerate, Reverse, Cycle Primary, Cycle
- * Secondary, Rear View, Menu.  The right stick and the d-pad turn, the
- * left stick slides, R2 and L2 fire.  Slide On has no button.
+ * Secondary, Rear View, Menu.  The left stick and the d-pad turn, the
+ * right stick slides, R2 and L2 fire.  Slide On has no button.
  */
 #define DXX_MISTER_DEFAULT(M,D)	M
 /* Joystick 1 has 32 buttons and a hat (4 buttons), then two buttons for
@@ -352,19 +352,19 @@ constexpr struct player_config::KeySettings DefaultKeySettings{
 		 * the axes.
 		 */
 		// Pitch up/down
-		DXX_MISTER_DEFAULT(0x3, 0x1),
+		0x1,
 		// Invert pitch
 		0x0,
 		// Turn left/right
-		DXX_MISTER_DEFAULT(0x2, 0x0),
+		0x0,
 		// Invert turn
 		0x0,
 		// Slide left/right
-		DXX_MISTER_DEFAULT(0x0, 0xff),
+		DXX_MISTER_DEFAULT(0x2, 0xff),
 		// Invert slide left/right
 		0x0,
 		// Slide up/down
-		DXX_MISTER_DEFAULT(0x1, 0xff),
+		DXX_MISTER_DEFAULT(0x3, 0xff),
 		// Invert slide up/down
 		0x0,
 		// Bank left/right
@@ -569,30 +569,35 @@ constexpr struct player_config::KeySettings DefaultKeySettings{
 
 #if DXX_USE_MISTER_HYBRID && DXX_MAX_JOYSTICKS
 /* Earlier defaults: the first ones (up to 2026-10-23) fired with Y and X,
- * turned with the left stick, slid with L, cycled the weapons with R and
- * Select and had no throttle; the test build of 2026-10-23 fired with Y
- * and X and had the triggers as the throttle.  A pilot that still has all
- * of either gets the current ones; one whose player changed any is left
- * as it is.
+ * slid with L, cycled the weapons with R and Select and had no throttle;
+ * two test builds of 2026-10-23 turned with the right stick and slid with
+ * the left, the first of them fired with Y and X and had the triggers as
+ * the throttle.  A pilot that still has all of any of them gets the
+ * current ones; one whose player changed any is left as it is.
  */
 void kc_mister_update_joystick(enumerated_array<uint8_t, MAX_CONTROLS, dxx_kconfig_ui_kc_joystick> &joystick)
 {
-	auto second{DefaultKeySettings.Joystick};
+	auto first{DefaultKeySettings.Joystick};
+	first[dxx_kconfig_ui_kc_joystick_fire_primary] = 0x0;
+	first[dxx_kconfig_ui_kc_joystick_fire_secondary] = 0x1;
+	first[dxx_kconfig_ui_kc_joystick_fire_flare] = 0xff;
+	first[dxx_kconfig_ui_kc_joystick_drop_bomb] = 0xff;
+	auto third{DefaultKeySettings.Joystick};
+	third[dxx_kconfig_ui_kc_joystick_pitch_ud] = 0x3;
+	third[dxx_kconfig_ui_kc_joystick_turn] = 0x2;
+	third[dxx_kconfig_ui_kc_joystick_slide_lr] = 0x0;
+	third[dxx_kconfig_ui_kc_joystick_slide_ud] = 0x1;
+	auto second{third};
 	second[dxx_kconfig_ui_kc_joystick_fire_primary] = 0x0;
 	second[dxx_kconfig_ui_kc_joystick_fire_secondary] = 0x1;
 	second[dxx_kconfig_ui_kc_joystick_fire_flare] = 0xff;
 	second[dxx_kconfig_ui_kc_joystick_drop_bomb] = 0xff;
-	auto first{second};
 	second[dxx_kconfig_ui_kc_joystick_throttle] = 0x4;
 	first[dxx_kconfig_ui_kc_joystick_slide_on] = 0x4;
-	first[dxx_kconfig_ui_kc_joystick_pitch_ud] = 0x1;
-	first[dxx_kconfig_ui_kc_joystick_turn] = 0x0;
-	first[dxx_kconfig_ui_kc_joystick_slide_lr] = 0x2;
-	first[dxx_kconfig_ui_kc_joystick_slide_ud] = 0x3;
 	first[dxx_kconfig_ui_kc_joystick_rear_view] = 0xff;
 	first[dxx_kconfig_ui_kc_joystick_cycle_primary] = 0x5;
 	first[dxx_kconfig_ui_kc_joystick_cycle_secondary] = 0x6;
-	if (joystick == first || joystick == second)
+	if (joystick == first || joystick == second || joystick == third)
 		joystick = DefaultKeySettings.Joystick;
 }
 #endif

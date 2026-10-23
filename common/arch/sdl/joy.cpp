@@ -229,21 +229,18 @@ window_event_result joy_button_handler(const SDL_JoyButtonEvent *const jbe)
 namespace {
 
 /* The game turns with the keyboard or with an axis.  The d-pad is a hat,
- * which the game only knows as four buttons, so it also pushes the right
- * stick all the way: the d-pad then does what the right stick does.
- */
-constexpr unsigned mister_dpad_axis{2};	// the right stick's X, Y the next
-/* Main_MiSTer presses the d-pad as well when the left stick is pushed far
+ * which the game only knows as four buttons, so it also pushes the left
+ * stick all the way: the d-pad then does what the left stick does.
+ * Main_MiSTer presses the d-pad as well when the left stick is pushed far
  * (a digital pad for the cores), so a d-pad direction the left stick is
- * pushed in is the stick's: it slides and does not turn.
+ * pushed in is the stick's: it keeps its own speed.
  */
 constexpr int mister_stick_pad{13};	// 10% of the left stick's range
 
 struct mister_dpad_state
 {
-	std::array<int, 2> stick;	// the right stick itself
+	std::array<int, 2> stick;	// the left stick itself
 	std::array<int, 2> dpad;	// -127, 0, 127
-	std::array<int, 2> left;	// the left stick
 	uint8_t hat;
 };
 
@@ -270,21 +267,19 @@ window_event_result send_mister_dpad_axis(d_physical_joystick &joystick, const u
 	return event_send(event);
 }
 
-int get_mister_dpad_direction(const uint8_t hat, const uint8_t minus, const uint8_t plus, const int left)
+int get_mister_dpad_direction(const uint8_t hat, const uint8_t minus, const uint8_t plus, const int stick)
 {
-	if ((hat & minus) && left >= -mister_stick_pad)
+	if ((hat & minus) && stick >= -mister_stick_pad)
 		return -127;
-	if ((hat & plus) && left <= mister_stick_pad)
+	if ((hat & plus) && stick <= mister_stick_pad)
 		return 127;
 	return 0;
 }
 
-void update_mister_dpad(d_physical_joystick &joystick, mister_dpad_state &state)
+void update_mister_dpad(mister_dpad_state &state)
 {
-	state.dpad[0] = get_mister_dpad_direction(state.hat, SDL_HAT_LEFT, SDL_HAT_RIGHT, state.left[0]);
-	state.dpad[1] = get_mister_dpad_direction(state.hat, SDL_HAT_UP, SDL_HAT_DOWN, state.left[1]);
-	for (const unsigned axis : {0u, 1u})
-		send_mister_dpad_axis(joystick, mister_dpad_axis + axis, get_mister_axis_value(state, axis));
+	state.dpad[0] = get_mister_dpad_direction(state.hat, SDL_HAT_LEFT, SDL_HAT_RIGHT, state.stick[0]);
+	state.dpad[1] = get_mister_dpad_direction(state.hat, SDL_HAT_UP, SDL_HAT_DOWN, state.stick[1]);
 }
 
 }
@@ -301,7 +296,9 @@ window_event_result joy_hat_handler(const SDL_JoyHatEvent *const jhe)
 	{
 		auto &state{get_mister_dpad_state(*joystick)};
 		state.hat = jhe->value;
-		update_mister_dpad(*joystick, state);
+		update_mister_dpad(state);
+		for (const unsigned axis : {0u, 1u})
+			send_mister_dpad_axis(*joystick, axis, get_mister_axis_value(state, axis));
 	}
 #endif
 	int hat = joystick->hat_map()[jhe->hat];
@@ -406,17 +403,13 @@ window_event_result joy_axis_handler(const SDL_JoyAxisEvent *const jae)
 	auto &axis_value = js->axis_value()[jae->axis];
 #if DXX_USE_MISTER_HYBRID && DXX_MAX_HATS_PER_JOYSTICK
 	int new_axis_value{jae->value / 256};
-	auto &state{get_mister_dpad_state(*js)};
-	if (const unsigned i{jae->axis - mister_dpad_axis}; i < 2)
+	if (jae->axis < 2)
 	{
-		/* The d-pad holds the right stick while it is pressed */
-		state.stick[i] = new_axis_value;
-		new_axis_value = get_mister_axis_value(state, i);
-	}
-	else if (jae->axis < 2)
-	{
-		state.left[jae->axis] = new_axis_value;
-		update_mister_dpad(*js, state);
+		/* The d-pad holds the left stick while it is pressed */
+		auto &state{get_mister_dpad_state(*js)};
+		state.stick[jae->axis] = new_axis_value;
+		update_mister_dpad(state);
+		new_axis_value = get_mister_axis_value(state, jae->axis);
 	}
 #else
 	const int new_axis_value{jae->value / 256};
