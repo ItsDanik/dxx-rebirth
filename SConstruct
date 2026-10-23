@@ -5101,6 +5101,7 @@ class DXXArchive(DXXCommon):
 'common/arch/sdl/gamecontroller.cpp',
 )), \
 		__get_objects_use_mister_hybrid=DXXCommon.create_lazy_object_getter((
+'common/arch/mister/mister_music.cpp',
 'common/arch/mister/mister_port.cpp',
 ))
 		):

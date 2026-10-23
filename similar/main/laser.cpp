@@ -1859,6 +1859,34 @@ void do_laser_firing_player(object &plrobj)
 			if (!shot_fired)
 				break;
 			rval += shot_fired;
+#if DXX_USE_MISTER_HYBRID
+			MiSTer_RumbleShot([&]() -> unsigned {
+				switch (Primary_weapon)
+				{
+					case primary_weapon_index::laser:
+						return +(flags & LASER_QUAD) ? 2 : 1;
+					case primary_weapon_index::vulcan:
+						return 1;
+					case primary_weapon_index::spreadfire:
+					case primary_weapon_index::plasma:
+						return 2;
+					case primary_weapon_index::fusion:
+						return 4;
+#if DXX_BUILD_DESCENT == 2
+					case primary_weapon_index::super_laser:
+					case primary_weapon_index::gauss:
+					case primary_weapon_index::helix:
+						return 2;
+					case primary_weapon_index::phoenix:
+						return 3;
+					case primary_weapon_index::omega:
+						return 1;
+#endif
+					default:
+						return 1;
+				}
+			}());
+#endif
 			Next_laser_fire_time = GameTime64 - fire_frame_overhead + (unlikely(cheats.rapidfire)
 				? (F1_0 / 25)
 				: (
@@ -2319,6 +2347,27 @@ void do_missile_firing(const secondary_weapon_index weapon, const vmobjptridx_t 
 			Next_missile_fire_time = GameTime64 + (F1_0/25) - fire_frame_overhead;
 
 		-- secondary_weapon_ammo;
+#if DXX_USE_MISTER_HYBRID
+		MiSTer_RumbleShot([weapon]() -> unsigned {
+			switch (weapon)
+			{
+				case secondary_weapon_index::proximity:
+#if DXX_BUILD_DESCENT == 2
+				case secondary_weapon_index::smart_mine:
+#endif
+					return 1;
+				case secondary_weapon_index::smart:
+					return 3;
+				case secondary_weapon_index::mega:
+#if DXX_BUILD_DESCENT == 2
+				case secondary_weapon_index::earthshaker:
+#endif
+					return 4;
+				default:
+					return 2;
+			}
+		}());
+#endif
 		if (weapon != secondary_weapon_index::concussion)
 			maybe_drop_net_powerup(Secondary_weapon_to_powerup[weapon], 1, 0);
 

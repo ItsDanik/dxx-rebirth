@@ -60,6 +60,7 @@ COPYRIGHT 1993-1999 PARALLAX SOFTWARE CORPORATION.  ALL RIGHTS RESERVED.
 #include "compiler-range_for.h"
 #include "d_levelstate.h"
 #include "d_range.h"
+#include "mister_port.h"
 
 #if DXX_USE_OGL
 #include "ogl_init.h"
@@ -780,6 +781,29 @@ void game_render_frame_mono(const d_robot_info_array &Robot_info, const control_
 {
 	int no_draw_hud{0};
 
+#if DXX_USE_MISTER_HYBRID
+	/* 320x240 (init_cockpit()): the view fills the frame.  The cockpit, the
+	 * status bar and the gauges are drawn to the 320x200 at the bottom HUD
+	 * margin, the HUD from the top margin down to where the view ends in
+	 * 320x200.  The reticle and what marks objects stay on the view.
+	 */
+	grs_subcanvas mister_bottom, mister_hud;
+	const auto mister_frame{MiSTer_cockpit_layout.active ? MiSTer_FrameCanvas() : nullptr};
+	if (mister_frame)
+	{
+		const auto &layout{MiSTer_cockpit_layout};
+		int top, bottom;
+		MiSTer_HudMargins(top, bottom);
+		const int frame_h{mister_frame->cv_bitmap.bm_h};
+		const int layout_y{frame_h - bottom - SHEIGHT};
+		gr_init_sub_canvas(mister_bottom, *mister_frame, 0, layout_y, SWIDTH, SHEIGHT);
+		gr_init_sub_canvas(mister_hud, *mister_frame, layout.x, top, layout.w, std::max(layout_y + layout.y + layout.h - top, 1));
+		MiSTer_GameFrameDrawn();
+	}
+	grs_canvas &hud_canvas{mister_frame ? static_cast<grs_canvas &>(mister_hud) : Screen_3d_window};
+#else
+	grs_canvas &hud_canvas{Screen_3d_window};
+#endif
 	gr_set_current_canvas(Screen_3d_window);
 	{
 	auto &canvas = *grd_curcanv;
@@ -822,14 +846,14 @@ void game_render_frame_mono(const d_robot_info_array &Robot_info, const control_
 		Viewer = viewer_save;
 
 		auto &game_font = *GAME_FONT;
-		gr_set_fontcolor(canvas, BM_XRGB(27, 0, 0), -1);
+		gr_set_fontcolor(hud_canvas, BM_XRGB(27, 0, 0), -1);
 
-		gr_string(canvas, game_font, 0x8000, FSPACY(1), "Guided Missile View");
+		gr_string(hud_canvas, game_font, 0x8000, FSPACY(1), "Guided Missile View");
 
 		auto &player_info = get_local_plrobj().ctype.player_info;
 		show_reticle(canvas, player_info, reticle_type::cross_v1, 0);
 
-		HUD_render_message_frame(canvas);
+		HUD_render_message_frame(hud_canvas);
 
 		no_draw_hud=1;
 	}
@@ -860,12 +884,25 @@ void game_render_frame_mono(const d_robot_info_array &Robot_info, const control_
 	}
 	}
 	gr_set_default_canvas();
+#if DXX_USE_MISTER_HYBRID
+	if (mister_frame)
+		gr_set_current_canvas(mister_bottom);
+#endif
 	{
 	auto &canvas = *grd_curcanv;
 	update_cockpits(canvas);
 
 	if (PlayerCfg.CockpitMode[1] == cockpit_mode_t::full_cockpit || PlayerCfg.CockpitMode[1] == cockpit_mode_t::status_bar)
 		render_gauges(canvas, Newdemo_state == ND_STATE_PLAYBACK ? Newdemo_game_mode : Game_mode);
+#if DXX_USE_MISTER_HYBRID
+	/* below a cockpit picture or status bar at the margin, black */
+	if (mister_frame && PlayerCfg.CockpitMode[1] != cockpit_mode_t::full_screen)
+	{
+		const auto &b{mister_bottom.cv_bitmap};
+		if (const int below{b.bm_y + b.bm_h}; below < mister_frame->cv_bitmap.bm_h)
+			gr_urect(*mister_frame, 0, below, b.bm_w - 1, mister_frame->cv_bitmap.bm_h - 1, 0);
+	}
+#endif
 	}
 
 	if (!no_draw_hud) {
@@ -878,13 +915,27 @@ void game_render_frame_mono(const d_robot_info_array &Robot_info, const control_
 		else
 #endif
 		{
-			game_draw_hud_stuff(Robot_info, Screen_3d_window, Controls);
+#if DXX_USE_MISTER_HYBRID
+			if (mister_frame)
+				MiSTer_view_canvas = &Screen_3d_window;
+#endif
+			game_draw_hud_stuff(Robot_info, hud_canvas, Controls);
+#if DXX_USE_MISTER_HYBRID
+			MiSTer_view_canvas = nullptr;
+#endif
 		}
 	}
 
 #if DXX_BUILD_DESCENT == 2
 	gr_set_default_canvas();
+#if DXX_USE_MISTER_HYBRID
+	if (mister_frame)
+		gr_set_current_canvas(mister_bottom);
+#endif
 	show_extra_views(*grd_curcanv);		//missile view, buddy bot, etc.
+#endif
+#if DXX_USE_MISTER_HYBRID
+	gr_set_default_canvas();
 #endif
 
 	if (netplayerinfo_on && +(Game_mode & GM_MULTI))

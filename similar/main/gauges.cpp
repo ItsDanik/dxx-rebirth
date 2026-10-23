@@ -64,6 +64,7 @@ COPYRIGHT 1993-1999 PARALLAX SOFTWARE CORPORATION.  ALL RIGHTS RESERVED.
 #include "vclip.h"
 #include "compiler-range_for.h"
 #include "d_levelstate.h"
+#include "mister_port.h"
 #include <utility>
 
 using std::min;
@@ -3841,6 +3842,12 @@ void draw_hud(const d_robot_info_array &Robot_info, grs_canvas &canvas, const ob
 	}
 	if (PlayerCfg.HudMode == HudType::Hidden) // no hud, "immersion mode"
 		return;
+#if DXX_USE_MISTER_HYBRID
+	/* where the view's objects are, when the HUD has a canvas of its own */
+	grs_canvas &view_canvas{MiSTer_view_canvas ? *MiSTer_view_canvas : canvas};
+#else
+	grs_canvas &view_canvas{canvas};
+#endif
 
 	// Cruise speed
 	if (const auto cruise_speed{Cruise_speed}; cruise_speed && PlayerCfg.CockpitMode[1] != cockpit_mode_t::rear_view)
@@ -3886,7 +3893,7 @@ void draw_hud(const d_robot_info_array &Robot_info, grs_canvas &canvas, const ob
 	//	Show other stuff if not in rearview or letterbox.
 	if (!Rear_view && PlayerCfg.CockpitMode[1] != cockpit_mode_t::rear_view)
 	{
-		show_HUD_names(Robot_info, canvas, Game_mode);
+		show_HUD_names(Robot_info, view_canvas, Game_mode);
 
 		if (PlayerCfg.CockpitMode[1] == cockpit_mode_t::status_bar || PlayerCfg.CockpitMode[1] == cockpit_mode_t::full_screen)
 			hud_show_homing_warning(canvas, player_info.homing_object_dist);
@@ -3944,13 +3951,13 @@ void draw_hud(const d_robot_info_array &Robot_info, grs_canvas &canvas, const ob
 		if (+(Game_mode & GM_MULTI) && Show_kill_list != show_kill_list_mode::None)
 			hud_show_kill_list(vcobjptr, canvas, Game_mode);
 		if (PlayerCfg.CockpitMode[1] != cockpit_mode_t::letterbox)
-			show_reticle(canvas, player_info, PlayerCfg.ReticleType, 1);
+			show_reticle(view_canvas, player_info, PlayerCfg.ReticleType, 1);
 		if (PlayerCfg.CockpitMode[1] != cockpit_mode_t::letterbox && Newdemo_state != ND_STATE_PLAYBACK && PlayerCfg.MouseFlightSim && PlayerCfg.MouseFSIndicator)
 		{
-			const auto gwidth = canvas.cv_bitmap.bm_w;
-			const auto gheight = canvas.cv_bitmap.bm_h;
+			const auto gwidth = view_canvas.cv_bitmap.bm_w;
+			const auto gheight = view_canvas.cv_bitmap.bm_h;
 			auto &raw_mouse_axis = Controls.raw_mouse_axis;
-			show_mousefs_indicator(canvas, raw_mouse_axis[0], raw_mouse_axis[1], raw_mouse_axis[2], gwidth / 2, gheight / 2, gheight / 4);
+			show_mousefs_indicator(view_canvas, raw_mouse_axis[0], raw_mouse_axis[1], raw_mouse_axis[2], gwidth / 2, gheight / 2, gheight / 4);
 		}
 	}
 

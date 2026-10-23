@@ -129,6 +129,9 @@ static fix64 last_timer_value;
 static fix64 sync_timer_value;
 }
 grs_subcanvas Screen_3d_window;							// The rectangle for rendering the mine to
+#if DXX_USE_MISTER_HYBRID
+mister_cockpit_layout MiSTer_cockpit_layout;
+#endif
 int force_cockpit_redraw{0};
 int	PaletteRedAdd, PaletteGreenAdd, PaletteBlueAdd;
 
@@ -356,6 +359,20 @@ void init_cockpit()
 		}
 	}
 
+#if DXX_USE_MISTER_HYBRID
+	/* In 320x240 the view fills the frame, from edge to edge.  The cockpit
+	 * picture, the status bar and the HUD are drawn over it where they are
+	 * in 320x200, moved to the player's HUD margins.  Not the letterbox,
+	 * which is about black bars.
+	 */
+	if (const auto frame{MiSTer_FrameCanvas()}; frame && PlayerCfg.CockpitMode[1] != cockpit_mode_t::letterbox)
+	{
+		const auto &v{Screen_3d_window.cv_bitmap};
+		const mister_cockpit_layout layout{true, v.bm_x, v.bm_y, v.bm_w, v.bm_h};
+		game_init_render_sub_buffers(*frame, 0, 0, frame->cv_bitmap.bm_w, frame->cv_bitmap.bm_h);
+		MiSTer_cockpit_layout = layout;
+	}
+#endif
 	gr_set_default_canvas();
 }
 
@@ -387,6 +404,9 @@ void reset_cockpit()
 
 void game_init_render_sub_buffers(grs_canvas &canvas, const int x, const int y, const int w, const int h)
 {
+#if DXX_USE_MISTER_HYBRID
+	MiSTer_cockpit_layout.active = false;
+#endif
 	gr_clear_canvas(canvas, 0);
 	gr_init_sub_canvas(Screen_3d_window, canvas, x, y, w, h);
 
@@ -1835,6 +1855,10 @@ window_event_result game_window::event_handler(const d_event &event)
 			{
 				calc_frame_time();
 				result = GameProcessFrame(LevelSharedRobotInfoState);
+#if DXX_USE_MISTER_HYBRID
+				if (result < window_event_result::close)
+					result = std::max(result, MiSTer_GameFrame(LevelSharedRobotInfoState));
+#endif
 			}
 
 			if (!Automap_active)		// efficiency hack

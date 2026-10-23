@@ -21,6 +21,8 @@
 #include "maths.h"
 #include <ctime>
 
+struct ADL_MIDIPlayer;
+
 namespace dcx {
 
 /* Joystick buttons as SDL sees them: the buttons of the core's "J1,"
@@ -38,10 +40,35 @@ enum mister_joy_button : unsigned
 	menu_back = 29,
 };
 
-/* Before SDL_Init: pick the paletted screen, one frame per field. */
-void MiSTer_Init();
-/* The size of the core's screen, which is the size of the window. */
+/* Before SDL_Init: pick the paletted screen, one frame per field.
+ * `descent` is the game, 1 or 2 (for the OSD lines of only one of them).
+ */
+void MiSTer_Init(unsigned descent);
+/* The size of the core's screen, which is the size of the window: 320x200,
+ * or 320x240 as the OSD's Resolution says.  The game's screen is always
+ * 320x200: in 320x240 it is the middle of the frame, and only the game's
+ * view and HUD are drawn in all of it (gr.cpp, MiSTer_FrameCanvas()).
+ */
 screen_mode MiSTer_ScreenMode();
+/* `changed` is called when the OSD's Resolution is changed */
+void MiSTer_OnResolutionChange(void (*changed)());
+/* gr.cpp: in 320x240 the whole frame, else nullptr */
+grs_canvas *MiSTer_FrameCanvas();
+/* gr.cpp: the pixels of the frame, where the texture mapper stops */
+extern int MiSTer_frame_pixels;
+/* gr.cpp: the game drew its view in all of this frame.  Else the rows
+ * above and below the game's screen are made black when it is shown.
+ */
+void MiSTer_GameFrameDrawn();
+/* The player's HUD margins in 320x240 (MH_HudMargins()): the rows from the
+ * top of the frame to the top HUD, and from the bottom HUD to the bottom
+ */
+void MiSTer_HudMargins(int &top, int &bottom);
+/* While the HUD is drawn to a canvas of its own (320x240): the canvas of
+ * the view, for what is drawn where the view's objects are (the reticle,
+ * the names of other players).  nullptr: they are the same canvas.
+ */
+extern grs_canvas *MiSTer_view_canvas;
 /* The game's clock, counted in fields of the core (1/59.64s) so that a
  * frame is on the screen for exactly as long as the game thinks it is.
  * Returns false without the core: use the system clock then.
@@ -90,6 +117,34 @@ int MiSTer_MusicVolume(int volume);
  * game to set its volumes again.
  */
 void MiSTer_OnVolumeChange(void (*changed)());
+/* Music played by the core (mister_music.cpp): libADLMIDI's sequencer
+ * plays the song, and its OPL2's register writes go to the core's FM chip
+ * or its MIDI events to the synthesizer in the core or an MT32-pi, as the
+ * OSD's Music says.  Setup after adl_init(): false without the core's chip
+ * (or the libADLMIDI of the MiSTer build), and the game plays it as on a PC.
+ */
+bool MiSTer_MusicSetup(ADL_MIDIPlayer *);
+/* A song was opened */
+void MiSTer_MusicSongStart();
+/* In the audio callback, before libADLMIDI makes `frames` at `rate`:
+ * follows the OSD, and returns the frames to leave silent before the song
+ * goes on (while what was sent to an MT32-pi goes out)
+ */
+int MiSTer_MusicBlock(int rate, int frames);
+/* The music stopped or paused, and goes on */
+void MiSTer_MusicSilence();
+void MiSTer_MusicResume();
+/* The OSD's Cheats page: its options (bit 0: status bit 26, ...), and its
+ * triggers (bit 0: T[56], ...) selected since the last call, of those
+ * selected while the game called this every frame
+ */
+unsigned MiSTer_CheatOptions();
+unsigned MiSTer_CheatTriggers();
+/* Rumble of the controller (the OSD's Rumble): a jolt of the heavy and
+ * the light motor, 0..255, fading out over `ms`.  A stronger jolt replaces
+ * a weaker one.
+ */
+void MiSTer_Rumble(int strong, int weak, int ms);
 /* Returns true if the message was shown on the screen of the core, where
  * it stays until a button is pressed.
  */

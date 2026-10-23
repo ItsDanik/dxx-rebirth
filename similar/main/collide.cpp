@@ -34,6 +34,7 @@ COPYRIGHT 1993-1999 PARALLAX SOFTWARE CORPORATION.  ALL RIGHTS RESERVED.
 #include "rle.h"
 #include "inferno.h"
 #include "game.h"
+#include "mister_port.h"
 #include "gr.h"
 #include "bm.h"
 #include "3d.h"
@@ -418,6 +419,9 @@ static void collide_player_and_wall(const vmobjptridx_t playerobj, const fix hit
 		//make sound
 		multi_digi_link_sound_to_pos(sound_effect::SOUND_FORCEFIELD_BOUNCE_PLAYER, hitseg, sidenum_t::WLEFT, hitpt, 0, f1_0);
 		ForceFieldHit=1;
+#if DXX_USE_MISTER_HYBRID
+		MiSTer_Rumble(150, 200, 250);
+#endif
 	}
 	else
 #endif
@@ -465,6 +469,9 @@ static void collide_player_and_wall(const vmobjptridx_t playerobj, const fix hit
 			volume = F1_0;
 		if (volume > 0 && !ForceFieldHit) {  // uhhhgly hack
 			multi_digi_link_sound_to_pos(sound_effect::SOUND_PLAYER_HIT_WALL, hitseg, sidenum_t::WLEFT, hitpt, 0, volume);
+#if DXX_USE_MISTER_HYBRID
+			MiSTer_RumbleBump(volume);
+#endif
 		}
 
 		auto &player_info = playerobj->ctype.player_info;
@@ -2199,6 +2206,9 @@ void apply_damage_to_player(object &playerobj, const icobjptridx_t killer, const
 
 	if (get_player_id(playerobj) == Player_num) {		//is this the local player?
 		PALETTE_FLASH_ADD(f2i(damage)*4,-f2i(damage/2),-f2i(damage/2));	//flash red
+#if DXX_USE_MISTER_HYBRID
+		MiSTer_RumbleHit(damage);
+#endif
 		if (playerobj.shields < 0)
 		{
 			/*

@@ -8,6 +8,7 @@
  * This is a dynamic interface to libADLMIDI, the OPL3 synthesizer library.
  */
 
+#include <cstddef>
 #include <memory>
 #include <stdint.h>
 #include "dxxsconf.h"
@@ -30,6 +31,13 @@ struct ADLMIDI_AudioFormat
 enum ADL_Emulator
 {
     ADLMIDI_EMU_DOSBOX = 2,
+#if DXX_USE_MISTER_HYBRID
+    /* The libADLMIDI of the MiSTer build (tools/libadlmidi-mister.patch of
+     * DXXRebirth_MiSTer): an OPL2 whose register writes go to a hook, for
+     * the FM chip of the core
+     */
+    ADLMIDI_EMU_HOOK_OPL2 = 14,
+#endif
 };
 
 /*
@@ -63,6 +71,18 @@ extern void (*adl_setLoopEnabled)(ADL_MIDIPlayer *device, int loopEn);
 extern int (*adl_openData)(ADL_MIDIPlayer *device, const void *mem, unsigned long size);
 extern int (*adl_openFile)(ADL_MIDIPlayer *device, const char *filePath);
 extern int (*adl_playFormat)(ADL_MIDIPlayer *device, int sampleCount, uint8_t *left, uint8_t *right, const ADLMIDI_AudioFormat *format);
+#if DXX_USE_MISTER_HYBRID
+/* Each MIDI event of the song as it is played */
+using ADL_RawEventHook = void (*)(void *userdata, uint8_t type, uint8_t subtype, uint8_t channel, const uint8_t *data, std::size_t len);
+extern void (*adl_setRawEventHook)(ADL_MIDIPlayer *device, ADL_RawEventHook rawEventHook, void *userData);
+/* ADLMIDI_EMU_HOOK_OPL2's register writes, with the output frame each is
+ * made at (adl_chipFrame(): frames made so far).  Both are nullptr with a
+ * libADLMIDI that does not have them.
+ */
+using ADL_ChipWriteHook = void (*)(void *userdata, int reg, int value, unsigned long frame);
+extern void (*adl_setChipWriteHook)(ADL_ChipWriteHook chipWriteHook, void *userData);
+extern unsigned long (*adl_chipFrame)();
+#endif
 
 struct ADLMIDI_delete
 {

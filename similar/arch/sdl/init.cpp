@@ -65,7 +65,7 @@ arch_atexit arch_init()
 	int t;
 
 #if DXX_USE_MISTER_HYBRID
-	MiSTer_Init();
+	MiSTer_Init(DXX_BUILD_DESCENT);
 #endif
 	if (SDL_Init(SDL_INIT_VIDEO) < 0)
 		Error("SDL library initialisation failed: %s.",SDL_GetError());

@@ -101,7 +101,17 @@ static ADL_MIDIPlayer *adl_init_first_call(long sample_rate)
 			con_printf(CON_NORMAL, "ADLMIDI: failed to load the dynamic library \"%s\"", library_name);
 	}
 	else
+	{
 		con_printf(CON_NORMAL, "ADLMIDI: loaded the dynamic OPL3 synthesizer");
+#if DXX_USE_MISTER_HYBRID
+		load_function(handle, "adl_setRawEventHook", adl_setRawEventHook);
+		/* only in the libADLMIDI of the MiSTer build */
+		adl_setChipWriteHook = reinterpret_cast<decltype(adl_setChipWriteHook)>(dlsym(handle, "adl_setChipWriteHook"));
+		adl_chipFrame = reinterpret_cast<decltype(adl_chipFrame)>(dlsym(handle, "adl_chipFrame"));
+		if (!adl_setChipWriteHook || !adl_chipFrame)
+			adl_setChipWriteHook = nullptr;
+#endif
+	}
 	return adl_init(sample_rate);
 }
 
@@ -115,3 +125,8 @@ void (*adl_setLoopEnabled)(ADL_MIDIPlayer *device, int loopEn);
 int (*adl_openData)(ADL_MIDIPlayer *device, const void *mem, unsigned long size);
 int (*adl_openFile)(ADL_MIDIPlayer *device, const char *filePath);
 int (*adl_playFormat)(ADL_MIDIPlayer *device, int sampleCount, uint8_t *left, uint8_t *right, const ADLMIDI_AudioFormat *format);
+#if DXX_USE_MISTER_HYBRID
+void (*adl_setRawEventHook)(ADL_MIDIPlayer *device, ADL_RawEventHook rawEventHook, void *userData);
+void (*adl_setChipWriteHook)(ADL_ChipWriteHook chipWriteHook, void *userData);
+unsigned long (*adl_chipFrame)();
+#endif

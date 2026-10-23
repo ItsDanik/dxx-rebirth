@@ -65,6 +65,7 @@ COPYRIGHT 1993-1999 PARALLAX SOFTWARE CORPORATION.  ALL RIGHTS RESERVED.
 #include "sounds.h"
 #include "args.h"
 #include "gameseq.h"
+#include "mister_port.h"
 #include "automap.h"
 #include "text.h"
 #include "powerup.h"
@@ -1733,12 +1734,10 @@ window_event_result levelwarp_menu::event_handler(const d_event &event)
 	}
 }
 
+static window_event_result do_cheat(const d_level_shared_robot_info_state &LevelSharedRobotInfoState, int8_t game_cheats::*gotcha);
+
 static window_event_result FinalCheats(const d_level_shared_robot_info_state &LevelSharedRobotInfoState)
 {
-	auto &Objects = LevelUniqueObjectState.Objects;
-	auto &vmobjptr = Objects.vmptr;
-	auto &vmobjptridx = Objects.vmptridx;
-
 	if (+(Game_mode & GM_MULTI))
 		return window_event_result::ignored;
 
@@ -1767,12 +1766,24 @@ static window_event_result FinalCheats(const d_level_shared_robot_info_state &Le
 				HUD_init_message_literal(HM_DEFAULT, {m, strlen(m)});
 			}
 #endif
-			cheats.*gotcha = !(cheats.*gotcha);
-			cheats.enabled = 1;
-			digi_play_sample( SOUND_CHEATER, F1_0);
 			break;
 		}
 	}
+	return do_cheat(LevelSharedRobotInfoState, gotcha);
+}
+
+/* A cheat typed, or chosen on the MiSTer's OSD (MiSTer_GameFrame()): it is
+ * toggled, and does what it does
+ */
+static window_event_result do_cheat(const d_level_shared_robot_info_state &LevelSharedRobotInfoState, int8_t game_cheats::*const gotcha)
+{
+	auto &Objects = LevelUniqueObjectState.Objects;
+	auto &vmobjptr = Objects.vmptr;
+	auto &vmobjptridx = Objects.vmptridx;
+
+	cheats.*gotcha = !(cheats.*gotcha);
+	cheats.enabled = 1;
+	digi_play_sample( SOUND_CHEATER, F1_0);
 	auto &plrobj = get_local_plrobj();
 	auto &player_info = plrobj.ctype.player_info;
 	player_info.mission.score = 0;
@@ -2327,5 +2338,160 @@ window_event_result ReadControls(const d_level_shared_robot_info_state &LevelSha
 
 	return window_event_result::ignored;
 }
+
+#if DXX_USE_MISTER_HYBRID
+namespace {
+
+/* The OSD's Cheats page: the options in the order of their status bits */
+constexpr int8_t game_cheats::*const mister_option_cheats[]{
+	&game_cheats::invul,
+	&game_cheats::robotfiringsuspended,
+	&game_cheats::rapidfire,
+	&game_cheats::ghostphysics,
+	&game_cheats::turbo,
+#if DXX_BUILD_DESCENT == 2
+	&game_cheats::homingfire,
+	&game_cheats::bouncyfire,
+	&game_cheats::robotskillrobots,
+#endif
+};
+
+/* and its triggers */
+enum mister_cheat_trigger : unsigned
+{
+	give_all = 1,
+	kill_reactor = 2,
+	next_level = 4,
+	exit_path = 8,
+};
+
+window_event_result mister_cheats(const d_level_shared_robot_info_state &LevelSharedRobotInfoState)
+{
+	/* the typed cheats are only for one player, and not in a demo */
+	const unsigned triggers{MiSTer_CheatTriggers()};
+	if (+(Game_mode & GM_MULTI) || Newdemo_state == ND_STATE_PLAYBACK || Player_dead_state != player_dead_state::no || Endlevel_sequence != endlevel_sequence::off)
+		return window_event_result::ignored;
+	auto &vmobjptr = LevelUniqueObjectState.Objects.vmptr;
+	const unsigned options{MiSTer_CheatOptions()};
+	auto result{window_event_result::ignored};
+	for (std::size_t i = 0; i < std::size(mister_option_cheats); ++i)
+		if (const auto c{mister_option_cheats[i]}; !(options & (1u << i)) != !(cheats.*c))
+			result = std::max(result, do_cheat(LevelSharedRobotInfoState, c));
+	auto &player_info = get_local_plrobj().ctype.player_info;
+	/* A new ship (or level) is not invulnerable: the option stays on */
+	if (cheats.invul && !(player_info.powerup_flags & player_flag::invulnerable))
+	{
+		player_info.powerup_flags |= player_flag::invulnerable;
+		player_info.invulnerable_time = GameTime64 + i2f(1000);
+		player_info.FakingInvul = 0;
+	}
+	if (triggers & give_all)
+	{
+#if DXX_BUILD_DESCENT == 1
+		do_cheat(LevelSharedRobotInfoState, &game_cheats::wowie2);
+#elif DXX_BUILD_DESCENT == 2
+		do_cheat(LevelSharedRobotInfoState, &game_cheats::wowie);
+		do_cheat(LevelSharedRobotInfoState, &game_cheats::accessory);
+#endif
+		do_cheat(LevelSharedRobotInfoState, &game_cheats::allkeys);
+		do_cheat(LevelSharedRobotInfoState, &game_cheats::shields);
+		result = std::max(result, window_event_result::handled);
+	}
+	if ((triggers & kill_reactor) && !LevelUniqueObjectState.ControlCenterState.Control_center_destroyed)
+		result = std::max(result, do_cheat(LevelSharedRobotInfoState, &game_cheats::killreactor));
+	if (triggers & exit_path)
+		result = std::max(result, do_cheat(LevelSharedRobotInfoState, &game_cheats::exitpath));
+	/* as the level warp: the levels of the mission, not the secret ones */
+	if ((triggers & next_level) && Current_level_num > 0 && Current_level_num < Current_mission->last_level)
+	{
+		cheats.enabled = 1;
+		digi_play_sample(SOUND_CHEATER, F1_0);
+		get_local_plrobj().ctype.player_info.mission.score = 0;
+		const auto g{Game_wind};
+		g->set_visible(0);
+		result = std::max(result, StartNewLevel(Current_level_num + 1));
+		g->set_visible(1);
+	}
+	return result;
+}
+
+/* What shakes the ship for more than a moment, every frame while it goes on */
+void mister_rumble()
+{
+	auto &vmobjptr = LevelUniqueObjectState.Objects.vmptr;
+	static player_dead_state last_dead_state;
+	if (Newdemo_state == ND_STATE_PLAYBACK)
+		return;
+	/* the ship is hit for the last time, and explodes */
+	if (Player_dead_state != last_dead_state)
+	{
+		last_dead_state = Player_dead_state;
+		if (Player_dead_state == player_dead_state::yes)
+			MiSTer_Rumble(255, 200, 700);
+		else if (Player_dead_state == player_dead_state::exploded)
+			MiSTer_Rumble(255, 255, 1000);
+	}
+	if (Player_dead_state != player_dead_state::no)
+		return;
+	/* the mine's reactor is gone: more as the countdown runs out */
+	if (auto &LevelUniqueControlCenterState = LevelUniqueObjectState.ControlCenterState; LevelUniqueControlCenterState.Control_center_destroyed && Endlevel_sequence == endlevel_sequence::off && LevelUniqueControlCenterState.Countdown_seconds_left >= 0)
+	{
+		const int left{std::min(LevelUniqueControlCenterState.Countdown_seconds_left, 16)};
+		MiSTer_Rumble(40 + (16 - left) * 8, 30 + (16 - left) * 4, 150);
+	}
+#if DXX_BUILD_DESCENT == 2
+	/* an earthshaker's or a smart mine's tremor */
+	if (const auto volume{LevelUniqueSeismicState.Seismic_tremor_volume})
+		MiSTer_Rumble(60 + volume * 12, 40 + volume * 8, 150);
+#endif
+	/* the fusion cannon charging, and hurting once overcharged */
+	if (const auto charge{get_local_plrobj().ctype.player_info.Fusion_charge}; charge > 0)
+		MiSTer_Rumble(charge > F1_0 * 2 ? 120 : 0, std::min(40 + charge / (F1_0 / 32), 160), 100);
+}
+
+}
+
+void MiSTer_RumbleHit(const fix damage)
+{
+	if (Newdemo_state == ND_STATE_PLAYBACK || damage <= 0)
+		return;
+	/* lava and the like, a little every frame */
+	if (damage < F1_0 / 2)
+	{
+		MiSTer_Rumble(0, 70, 80);
+		return;
+	}
+	/* two for a point of the shields: a robot's laser 4 to 12, a mega 400 */
+	const int d{damage / (F1_0 / 2)};
+	MiSTer_Rumble(40 + d * 6, 80 + d * 4, d < 96 ? 120 + d * 5 : 600);
+}
+
+void MiSTer_RumbleShot(const unsigned weight)
+{
+	if (Newdemo_state == ND_STATE_PLAYBACK)
+		return;
+	switch (weight)
+	{
+		case 1: MiSTer_Rumble(0, 90, 70); break;
+		case 2: MiSTer_Rumble(110, 150, 140); break;
+		case 3: MiSTer_Rumble(180, 160, 200); break;
+		case 4: MiSTer_Rumble(255, 220, 400); break;
+	}
+}
+
+void MiSTer_RumbleBump(const fix volume)
+{
+	if (Newdemo_state == ND_STATE_PLAYBACK || volume <= 0)
+		return;
+	const int v{std::min(volume, F1_0) / (F1_0 / 64)};
+	MiSTer_Rumble(40 + v * 3, 60 + v * 2, 80 + v * 2);
+}
+
+window_event_result MiSTer_GameFrame(const d_level_shared_robot_info_state &LevelSharedRobotInfoState)
+{
+	mister_rumble();
+	return mister_cheats(LevelSharedRobotInfoState);
+}
+#endif
 
 }

@@ -190,8 +190,14 @@ static ADL_MIDIPlayer *get_adlmidi()
 		adlmidi = adl_init(sample_rate);
 		if (adlmidi)
 		{
-			adl_switchEmulator(adlmidi, ADLMIDI_EMU_DOSBOX);
-			adl_setNumChips(adlmidi, CGameCfg.ADLMIDI_num_chips);
+#if DXX_USE_MISTER_HYBRID
+			/* the core's FM chip or its MIDI synthesizer, else as on a PC */
+			if (!MiSTer_MusicSetup(adlmidi))
+#endif
+			{
+				adl_switchEmulator(adlmidi, ADLMIDI_EMU_DOSBOX);
+				adl_setNumChips(adlmidi, CGameCfg.ADLMIDI_num_chips);
+			}
 			adl_setBank(adlmidi, CGameCfg.ADLMIDI_bank);
 			adl_setSoftPanEnabled(adlmidi, 1);
 			current_adlmidi.reset(adlmidi);
@@ -206,6 +212,9 @@ static void mix_set_music_type_adl(int loop, void (*const hook_finished_track)()
 {
 	ADL_MIDIPlayer *adlmidi = get_adlmidi();
 	adl_setLoopEnabled(adlmidi, loop);
+#if DXX_USE_MISTER_HYBRID
+	MiSTer_MusicSongStart();
+#endif
 	Mix_HookMusic(&mix_adlmidi, nullptr);
 	Mix_HookMusicFinished(hook_finished_track);
 }
@@ -339,6 +348,9 @@ void mix_free_music()
 	 */
 	Mix_HookMusic(nullptr, nullptr);
 #endif
+#if DXX_USE_MISTER_HYBRID
+	MiSTer_MusicSilence();
+#endif
 	current_music.reset();
 #if DXX_HAVE_POISON_VALGRIND || !defined(NDEBUG)
 	/* In a debug build, destroy the storage buffer, so that any underlying
@@ -367,24 +379,34 @@ void mix_set_music_volume(int vol)
 void mix_stop_music()
 {
 	Mix_HaltMusic();
+#if DXX_USE_MISTER_HYBRID
+	/* the core's chip or synthesizer plays on what it was last told */
+	MiSTer_MusicSilence();
+#endif
 }
 
 void mix_pause_music()
 {
 	Mix_PauseMusic();
+#if DXX_USE_MISTER_HYBRID
+	MiSTer_MusicSilence();
+#endif
 }
 
 void mix_resume_music()
 {
+#if DXX_USE_MISTER_HYBRID
+	MiSTer_MusicResume();
+#endif
 	Mix_ResumeMusic();
 }
 
 void mix_pause_resume_music()
 {
 	if (Mix_PausedMusic())
-		Mix_ResumeMusic();
+		mix_resume_music();
 	else if (Mix_PlayingMusic())
-		Mix_PauseMusic();
+		mix_pause_music();
 }
 
 namespace {
@@ -459,6 +481,20 @@ static void mix_adlmidi(void *, Uint8 *stream, int len)
 
 	ADL_MIDIPlayer *adlmidi = get_adlmidi();
 	int sampleCount = len / format.containerSize;
+#if DXX_USE_MISTER_HYBRID
+	/* The core plays the music: libADLMIDI makes silence, its OPL2 writes
+	 * and MIDI events go to the core, each at its frame of this block.  A
+	 * song may wait some frames for an MT32-pi.
+	 */
+	int sample_rate;
+	Mix_QuerySpec(&sample_rate, nullptr, nullptr);
+	if (const int hold{MiSTer_MusicBlock(sample_rate, sampleCount / 2)})
+	{
+		std::fill_n(reinterpret_cast<int16_t *>(stream), 2 * hold, 0);
+		adl_playFormat(adlmidi, sampleCount - 2 * hold, stream + 2 * hold * format.containerSize, stream + (2 * hold + 1) * format.containerSize, &format);
+	}
+	else
+#endif
 	adl_playFormat(adlmidi, sampleCount, stream, stream + format.containerSize, &format);
 
 	const auto samples = reinterpret_cast<int16_t *>(stream);

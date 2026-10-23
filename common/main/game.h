@@ -445,6 +445,19 @@ struct game_cheats : prohibit_void_ptr<>
 void game_render_frame(const d_robot_info_array &Robot_info, const control_info &Controls);
 void game_render_frame_mono(const d_robot_info_array &Robot_info, const control_info &Controls);
 window_event_result ReadControls(const d_level_shared_robot_info_state &LevelSharedRobotInfoState, const d_event &event, control_info &Controls);
+#if DXX_USE_MISTER_HYBRID
+/* After a frame of the game: the OSD's cheats, and the rumble of what goes
+ * on for a while (gamecntl.cpp)
+ */
+window_event_result MiSTer_GameFrame(const d_level_shared_robot_info_state &LevelSharedRobotInfoState);
+/* Rumble of the player's ship: hit for `damage` (of the shields), firing a
+ * weapon of `weight` 1 (light) .. 4 (heavy), against a wall at `volume`
+ * (of F1_0, the loudness of its sound)
+ */
+void MiSTer_RumbleHit(fix damage);
+void MiSTer_RumbleShot(unsigned weight);
+void MiSTer_RumbleBump(fix volume);
+#endif
 
 }
 #endif

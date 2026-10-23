@@ -12,6 +12,7 @@
 #include <array>
 #include <cstdlib>
 #include <ctime>
+#include <utility>
 #include <SDL.h>
 #include <mister_hybrid.h>
 #include "mister_port.h"
@@ -51,6 +52,117 @@ constexpr int osd_music_volume(const uint64_t status)
 	return static_cast<int>((status >> 11) & 0xf);
 }
 
+/* The game's options (CONF_STR in core/DXXRebirth.sv) */
+constexpr bool osd_240_lines(const uint64_t status)
+{
+	return (status >> 24) & 1;
+}
+
+constexpr bool osd_no_rumble(const uint64_t status)
+{
+	return (status >> 25) & 1;
+}
+
+/* Bits 0..3 of MH_SetMenuMask(): "D0" greys the HUD margins in 320x200,
+ * "D1" the cheats of only Descent II
+ */
+constexpr int menu_mask_200_lines{1};
+constexpr int menu_mask_descent1{2};
+
+/* GAME: 1 if the game's frames take most of a field: each is drawn a field
+ * ahead and the library shows it at its own field (MH_PresentAtField()), so
+ * that one a little slower than a field is still in time, for one field more
+ * latency.  Decide by benchmark, hybrid/CLAUDE.md ("Frame pacing").
+ */
+#define DRAW_AHEAD 0
+
+unsigned game_descent;
+bool screen_240, menu_mask_sent;
+void (*resolution_changed)();
+
+void set_menu_mask()
+{
+	if (!MH_IsOpen())
+		return;
+	MH_SetMenuMask((screen_240 ? 0 : menu_mask_200_lines) | (game_descent == 1 ? menu_mask_descent1 : 0));
+	menu_mask_sent = true;
+}
+
+void poll_resolution()
+{
+	if (!MH_IsOpen())
+		return;
+	if (!menu_mask_sent)
+		set_menu_mask();
+	if (osd_240_lines(MH_OSDStatus()) == screen_240)
+		return;
+	/* gr_set_mode() takes it from MiSTer_ScreenMode() */
+	if (resolution_changed)
+		(*resolution_changed)();
+}
+
+/* OSD triggers selected since the game last took them, while it does */
+unsigned cheat_triggers;
+bool cheat_triggers_taken;
+
+void poll_triggers()
+{
+	if (!MH_IsOpen())
+		return;
+	const unsigned triggers = MH_OSDTriggers();
+	/* those selected in a menu are not kept for the next game */
+	cheat_triggers = (cheat_triggers_taken ? cheat_triggers : 0) | triggers;
+	cheat_triggers_taken = false;
+}
+
+/* Rumble: a jolt for each motor, its strength fading out from `start` to
+ * `end`; update_rumble() tells the controller every frame while one goes on
+ */
+struct jolt
+{
+	int level;
+	uint64_t start, end;
+};
+std::array<jolt, 2> jolts;
+bool rumbling;
+
+uint64_t now_us()
+{
+	timespec ts;
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+	return static_cast<uint64_t>(ts.tv_sec) * 1000000 + ts.tv_nsec / 1000;
+}
+
+int jolt_now(const jolt &j, const uint64_t now)
+{
+	if (now >= j.end)
+		return 0;
+	return static_cast<int>(j.level * (j.end - now) / (j.end - j.start));
+}
+
+void update_rumble()
+{
+	if (!MH_IsOpen())
+		return;
+	if (osd_no_rumble(MH_OSDStatus()))
+		jolts = {};
+	const auto now{now_us()};
+	const int strong{jolt_now(jolts[0], now)}, weak{jolt_now(jolts[1], now)};
+	/* once a frame while it goes on (the motors stop by themselves two
+	 * seconds after the last call), and once more to stop them
+	 */
+	if (strong || weak || rumbling)
+		MH_Rumble(strong, weak);
+	rumbling = strong || weak;
+}
+
+void stop_rumble()
+{
+	if (rumbling)
+		MH_Rumble(0, 0);
+	rumbling = false;
+}
+
 void (*volume_changed)();
 
 void poll_volume()
@@ -83,6 +195,9 @@ void check_core()
 		 */
 		const auto reloaded{MH_CoreReloaded()};
 		con_printf(CON_NORMAL, "mister: %u frames in %u fields", frame_count, static_cast<unsigned>(total_fields));
+		/* only a core that is still there stops the motors */
+		jolts = {};
+		rumbling = false;
 		if (reloaded)
 			con_puts(CON_NORMAL, "mister: the core was loaded again, leaving");
 		else
@@ -100,8 +215,9 @@ void check_core()
 
 }
 
-void MiSTer_Init()
+void MiSTer_Init(const unsigned descent)
 {
+	game_descent = descent;
 	/* The game draws 8 bit: the core does the palette lookup, so palette
 	 * fades and flashes cost nothing.
 	 */
@@ -111,8 +227,22 @@ void MiSTer_Init()
 
 screen_mode MiSTer_ScreenMode()
 {
-	return screen_mode{320, 200};
+	screen_240 = MH_IsOpen() && osd_240_lines(MH_OSDStatus());
+	set_menu_mask();
+	return screen_mode{320, screen_240 ? 240u : 200u};
 }
+
+void MiSTer_OnResolutionChange(void (*const changed)())
+{
+	resolution_changed = changed;
+}
+
+void MiSTer_HudMargins(int &top, int &bottom)
+{
+	MH_HudMargins(&top, &bottom);
+}
+
+grs_canvas *MiSTer_view_canvas;
 
 bool MiSTer_RunTime(fix64 &runtime)
 {
@@ -139,8 +269,28 @@ bool MiSTer_RunTime(fix64 &runtime)
 bool MiSTer_WaitFrame()
 {
 	static uint32_t frame_field;
+	static bool frame_field_valid;
 	if (!MH_IsOpen())
 		return false;
+	if (!frame_field_valid)
+	{
+		frame_field_valid = true;
+		frame_field = MH_FieldCounter();
+	}
+	if (DRAW_AHEAD && !MH_Interlaced())
+	{
+		/* the frame is shown at the field after the last one's */
+		uint32_t target{frame_field + 1};
+		/* not before the field two before its own */
+		MH_WaitField(target - 3);
+		const uint32_t field{MH_FieldCounter()};
+		if (static_cast<int32_t>(field + 1 - target) > 0)
+			/* too late for it: the next vblank */
+			target = field + 1;
+		MH_PresentAtField(target);
+		frame_field = target;
+		return true;
+	}
 	/* Returns at once if the field has passed, or the core is gone */
 	MH_WaitField(frame_field);
 	frame_field = MH_FieldCounter();
@@ -269,6 +419,9 @@ void MiSTer_CheckCore()
 	++frame_count;
 	check_core();
 	poll_volume();
+	poll_resolution();
+	poll_triggers();
+	update_rumble();
 }
 
 namespace {
@@ -295,6 +448,32 @@ void MiSTer_OnVolumeChange(void (*const changed)())
 	volume_changed = changed;
 }
 
+unsigned MiSTer_CheatOptions()
+{
+	return MH_IsOpen() ? static_cast<unsigned>((MH_OSDStatus() >> 26) & 0xff) : 0;
+}
+
+unsigned MiSTer_CheatTriggers()
+{
+	cheat_triggers_taken = true;
+	return std::exchange(cheat_triggers, 0);
+}
+
+void MiSTer_Rumble(const int strong, const int weak, const int ms)
+{
+	if (!MH_IsOpen() || osd_no_rumble(MH_OSDStatus()) || ms <= 0)
+		return;
+	const auto now{now_us()};
+	const std::array<int, 2> levels{{strong, weak}};
+	for (std::size_t motor = 0; motor < jolts.size(); ++motor)
+	{
+		const int level{std::min(levels[motor], 255)};
+		auto &j{jolts[motor]};
+		if (level > jolt_now(j, now))
+			j = {level, now, now + static_cast<uint64_t>(ms) * 1000};
+	}
+}
+
 bool MiSTer_ShowError(const char *const message)
 {
 	if (!MH_Open())
@@ -305,6 +484,7 @@ bool MiSTer_ShowError(const char *const message)
 
 int MiSTer_ExitCode()
 {
+	stop_rumble();
 	/* Not if we are quitting because another core was loaded */
 	if (getenv("MISTER_HYBRID_FROM_LIST") && MH_Open())
 		return exit_to_list;

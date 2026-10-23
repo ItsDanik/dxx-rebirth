@@ -29,6 +29,8 @@
 #include "config.h"
 #include "palette.h"
 #include "mister_port.h"
+#include "inferno.h"
+#include "screens.h"
 
 #include "compiler-range_for.h"
 #include "d_range.h"
@@ -45,6 +47,32 @@ SDL_Window *g_pRebirthSDLMainWindow;
 #endif
 static SDL_Surface *screen, *canvas;
 static int gr_installed;
+#if DXX_USE_MISTER_HYBRID
+/* 320x240: the whole frame, of which the game's screen (grd_curscreen) is
+ * the 320x200 in the middle
+ */
+static grs_subcanvas mister_frame;
+static bool mister_frame_240, mister_game_drawn;
+int MiSTer_frame_pixels{320 * 200};
+
+grs_canvas *MiSTer_FrameCanvas()
+{
+	if (!mister_frame_240)
+		return nullptr;
+	/* for the canvases made of it: the font and fade of the game's screen */
+	const auto &screen{grd_curscreen->sc_canvas};
+	mister_frame.cv_font = screen.cv_font;
+	mister_frame.cv_font_fg_color = screen.cv_font_fg_color;
+	mister_frame.cv_font_bg_color = screen.cv_font_bg_color;
+	mister_frame.cv_fade_level = screen.cv_fade_level;
+	return &mister_frame;
+}
+
+void MiSTer_GameFrameDrawn()
+{
+	mister_game_drawn = true;
+}
+#endif
 
 #if SDL_MAJOR_VERSION == 1
 void gr_flip()
@@ -63,6 +91,19 @@ void gr_flip()
 	const auto SDLWindow{g_pRebirthSDLMainWindow};
 	if (!canvas)
 		return;
+#if DXX_USE_MISTER_HYBRID
+	/* Above and below the game's screen only the game's view and HUD
+	 * draw: a frame without them has black there
+	 */
+	if (mister_frame_240 && !std::exchange(mister_game_drawn, false))
+	{
+		auto &f{mister_frame.cv_bitmap};
+		const unsigned band{(f.bm_h - SHEIGHT) / 2u};
+		const auto data{f.get_bitmap_data()};
+		std::fill_n(data, f.bm_rowsize * band, 0);
+		std::fill_n(data + f.bm_rowsize * (band + SHEIGHT), f.bm_rowsize * (f.bm_h - band - SHEIGHT), 0);
+	}
+#endif
 	/* The window surface is replaced when the window changes size.  A
 	 * canvas that is the window surface only changes size in
 	 * gr_set_mode.
@@ -141,11 +182,17 @@ int gr_set_mode(screen_mode mode)
 {
 	const auto SDLWindow{g_pRebirthSDLMainWindow};
 #if DXX_USE_MISTER_HYBRID
-	/* The window is the screen of the core. */
-	mode = MiSTer_ScreenMode();
+	/* The window is the screen of the core: 320x200, or 320x240 with the
+	 * game's screen a 320x200 canvas in its middle, where all but the
+	 * game's view and HUD is drawn (MiSTer_FrameCanvas())
+	 */
+	const auto window_mode{MiSTer_ScreenMode()};
+	mode = screen_mode{320, 200};
 	Game_screen_mode = mode;
-#endif
+	const unsigned w = SM_W(window_mode), h = SM_H(window_mode);
+#else
 	const unsigned w = SM_W(mode), h = SM_H(mode);
+#endif
 	if (!(SDL_GetWindowFlags(SDLWindow) & SDL_WINDOW_FULLSCREEN_DESKTOP))
 		SDL_SetWindowSize(SDLWindow, w, h);
 	screen = SDL_GetWindowSurface(SDLWindow);
@@ -173,14 +220,31 @@ int gr_set_mode(screen_mode mode)
 		}
 		grd_curscreen->sdl_surface = RAII_SDL_Surface(canvas);
 	}
+#if DXX_USE_MISTER_HYBRID
+	const unsigned sw = SM_W(mode), sh = SM_H(mode);
+	{
+		const auto pixels{reinterpret_cast<unsigned char *>(canvas->pixels)};
+		gr_init_canvas(mister_frame, pixels, bm_mode::linear, w, h);
+		MiSTer_frame_pixels = w * h;
+		mister_frame_240 = h > sh;
+		mister_game_drawn = false;
+		std::fill_n(pixels, w * h, 0);
+		grd_curscreen->set_screen_width_height(sw, sh);
+		/* The core's screen is 4:3: its pixels are square in 320x240 */
+		grd_curscreen->sc_aspect = fixdiv(w * 3, h * 4);
+		gr_init_canvas(grd_curscreen->sc_canvas, pixels + w * ((h - sh) / 2), bm_mode::linear, sw, sh);
+	}
+#else
+	const unsigned sw = w, sh = h;
 	grd_curscreen->set_screen_width_height(w, h);
 	grd_curscreen->sc_aspect = fixdiv(grd_curscreen->get_screen_width() * CGameCfg.AspectX, grd_curscreen->get_screen_height() * CGameCfg.AspectY);
 	gr_init_canvas(grd_curscreen->sc_canvas, reinterpret_cast<unsigned char *>(canvas->pixels), bm_mode::linear, w, h);
+#endif
 	window_update_canvases();
 	gr_set_default_canvas();
 
 	SDL_ShowCursor(0);
-	gamefont_choose_game_font(w,h);
+	gamefont_choose_game_font(sw, sh);
 	gr_palette_load(gr_palette);
 	gr_remap_color_fonts();
 
@@ -284,6 +348,23 @@ void gr_toggle_fullscreen()
 
 namespace dsx {
 
+#if DXX_USE_MISTER_HYBRID
+/* The OSD's Resolution was changed: the window takes the core's new size.
+ * The view is set up again for it (init_cockpit()) at the next frame of the
+ * game; until then it is the game's screen, as after a change in the menus.
+ */
+static void mister_resolution_changed()
+{
+	/* not in the middle of a movie: after it */
+	if (Screen_mode == SCREEN_MOVIE)
+		return;
+	gr_set_mode(Game_screen_mode);
+	gr_set_default_canvas();
+	game_init_render_sub_buffers(*grd_curcanv, 0, 0, SWIDTH, SHEIGHT);
+	reset_cockpit();
+}
+#endif
+
 int gr_init()
 {
 	// Only do this function once!
@@ -316,6 +397,7 @@ int gr_init()
 		sdl_window_flags |= SDL_WINDOW_BORDERLESS;
 #if DXX_USE_MISTER_HYBRID
 	const auto mode{MiSTer_ScreenMode()};
+	MiSTer_OnResolutionChange(&mister_resolution_changed);
 #else
 	if (!CGameCfg.WindowMode && !CGameArg.SysWindow)
 		sdl_window_flags |= SDL_WINDOW_FULLSCREEN_DESKTOP;

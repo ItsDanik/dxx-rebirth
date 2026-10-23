@@ -47,4 +47,17 @@ extern const std::array<int8_t, 64> fades;
 
 //About the screen
 extern grs_subcanvas		Screen_3d_window;		// The rectangle for rendering the mine to
+
+#if DXX_USE_MISTER_HYBRID
+/* MiSTer in 320x240 (init_cockpit()): Screen_3d_window is the whole frame,
+ * and this is where the view is in the 320x200 layout of the cockpit, which
+ * the cockpit and HUD keep (game_render_frame_mono())
+ */
+struct mister_cockpit_layout
+{
+	bool active;
+	uint16_t x, y, w, h;
+};
+extern mister_cockpit_layout MiSTer_cockpit_layout;
+#endif
 }

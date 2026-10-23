@@ -38,8 +38,17 @@ COPYRIGHT 1993-1998 PARALLAX SOFTWARE CORPORATION.  ALL RIGHTS RESERVED.
 #include "scanline.h"
 #include "strutil.h"
 #include "dxxerror.h"
+#include "mister_port.h"
 
 namespace dcx {
+
+/* No pixel is drawn at or after the last one of the screen */
+#if DXX_USE_MISTER_HYBRID
+/* the core's frame, which is more than the game's screen in 320x240 */
+#define screen_pixels MiSTer_frame_pixels
+#else
+#define screen_pixels (SWIDTH * SHEIGHT)
+#endif
 
 tmap_scanline_function_table tmap_scanline_functions;
 
@@ -51,7 +60,7 @@ void c_tmap_scanline_flat()
 	dest = (write_buffer + fx_xleft + (bytes_per_row * fx_y ));
 
 	for (x= fx_xright-fx_xleft+1 ; x > 0; --x ) {
-		if (++index >= SWIDTH*SHEIGHT) return;
+		if (++index >= screen_pixels) return;
 		*dest++ = tmap_flat_color;
 	}
 //         memset(dest,tmap_flat_color,fx_xright-fx_xleft+1);
@@ -64,7 +73,7 @@ void c_tmap_scanline_shaded(const gr_fade_level fade)
 
 	auto dest = &write_buffer[fx_xleft + (bytes_per_row * fx_y)];
 	for (x= fx_xright-fx_xleft+1 ; x > 0; --x ) {
-		if (++index >= SWIDTH*SHEIGHT) return;
+		if (++index >= screen_pixels) return;
 		tmp = *dest;
 		*dest++ = gr_fade_table[fade][tmp];
 	}
@@ -85,14 +94,14 @@ void c_tmap_scanline_lin_nolight()
 
 	if (!Transparency_on)	{
 		for (x= fx_xright-fx_xleft+1 ; x > 0; --x ) {
-			if (++index >= SWIDTH*SHEIGHT) return;
+			if (++index >= screen_pixels) return;
 			*dest++ = static_cast<uint32_t>(pixptr[ (f2i(v)&(64*63)) + (f2i(u)&63) ]);
 			u += dudx;
 			v += dvdx;
 		}
 	} else {
 		for (x= fx_xright-fx_xleft+1 ; x > 0; --x ) {
-			if (++index >= SWIDTH*SHEIGHT) return;
+			if (++index >= screen_pixels) return;
 			c = static_cast<uint32_t>(pixptr[ (f2i(v)&(64*63)) + (f2i(u)&63) ]);
 			if ( c!=255)
 				*dest = c;
@@ -135,7 +144,7 @@ void c_tmap_scanline_lin()
 
 			while (j > 0)
 				{	
-				if (++index >= SWIDTH*SHEIGHT) return;
+				if (++index >= screen_pixels) return;
 				*dest++ = read_fade_table_entry(l, v, u);
 				l += dldx;
 				u += dudx;
@@ -170,12 +179,12 @@ void c_tmap_scanline_lin()
 			x -= 4;
 			j -= 4;
 			index += 4;
-			if (index+4 >= SWIDTH*SHEIGHT) return;
+			if (index+4 >= screen_pixels) return;
 			}
 
 		while (x-- > 0)
 			{
-			if (++index >= SWIDTH*SHEIGHT) return;
+			if (++index >= screen_pixels) return;
 			*dest++ = read_fade_table_entry(l, v, u);
 			l += dldx;
 			u += dudx;
@@ -184,7 +193,7 @@ void c_tmap_scanline_lin()
 
 	} else {
 		for (x= fx_xright-fx_xleft+1 ; x > 0; --x ) {
-			if (++index >= SWIDTH*SHEIGHT) return;
+			if (++index >= screen_pixels) return;
 			c = static_cast<uint32_t>(pixptr[ (f2i(v)&(64*63)) + (f2i(u)&63) ]);
 			if ( c!=TRANSPARENCY_COLOR)
 			//edited 05/18/99 Matt Mueller - changed from 0xff00 to 0x7f00 to fix glitches
@@ -242,7 +251,7 @@ static void c_fp_tmap_scanline_per()
 				j = 8 - j;
 
 				while (j > 0) {
-					if (++index >= SWIDTH*SHEIGHT) return;
+					if (++index >= screen_pixels) return;
 					*dest++ =
 					    read_fade_table_entry(rec_z, v, u, l);
 					l += dldx;
@@ -319,11 +328,11 @@ static void c_fp_tmap_scanline_per()
 				x -= 8;
 				j -= 8;
 				index += 8;
-				if (index+8 >= SWIDTH*SHEIGHT) return;
+				if (index+8 >= screen_pixels) return;
 			}
 		}
 		while (x-- > 0) {
-			if (++index >= SWIDTH*SHEIGHT) return;
+			if (++index >= screen_pixels) return;
 			*dest++ =
 			    read_fade_table_entry(rec_z, v, u, l);
 			l += dldx;
@@ -338,7 +347,7 @@ static void c_fp_tmap_scanline_per()
 				j = 8 - j;
 
 				while (j > 0) {
-					if (++index >= SWIDTH*SHEIGHT) return;
+					if (++index >= screen_pixels) return;
 					const auto c = static_cast<uint32_t>(read_pixptr_entry(rec_z, v, u));
 					if (c != 255)
 						*dest = read_opaque_fade_table_entry(l, c);
@@ -443,11 +452,11 @@ static void c_fp_tmap_scanline_per()
 				x -= 8;
 				j -= 8;
 				index += 8;
-				if (index+8 >= SWIDTH*SHEIGHT) return;
+				if (index+8 >= screen_pixels) return;
 			}
 		}
 		while (x-- > 0) {
-			if (++index >= SWIDTH*SHEIGHT) return;
+			if (++index >= screen_pixels) return;
 			c = static_cast<uint32_t>(read_pixptr_entry(rec_z, v, u));
 			if (c != 255)
 				*dest = read_opaque_fade_table_entry(l, c);
@@ -495,7 +504,7 @@ static void c_tmap_scanline_per()
 
 			while (j > 0)
 				{	
-				if (++index >= SWIDTH*SHEIGHT) return;
+				if (++index >= screen_pixels) return;
 				//edited 05/18/99 Matt Mueller - changed from 0xff00 to 0x7f00 to fix glitches
 				*dest++ = fadeTableLocalCopy.base_type::operator[]((l >> 8) & 0x7f)[static_cast<uint32_t>(pixPtrLocalCopy[((v / z) & (64 * 63)) + ((u / z) & 63)])];
 				//end edit -MM
@@ -545,12 +554,12 @@ static void c_tmap_scanline_per()
 			x -= 4;
 			j -= 4;
 			index += 4;
-			if (index+4 >= SWIDTH*SHEIGHT) return;
+			if (index+4 >= screen_pixels) return;
 			}
 
 		while (x-- > 0)
 			{
-			if (++index >= SWIDTH*SHEIGHT) return;
+			if (++index >= screen_pixels) return;
 			//edited 05/18/99 Matt Mueller - changed from 0xff00 to 0x7f00 to fix glitches
 			*dest++ = fadeTableLocalCopy.base_type::operator[]((l >> 8) & 0x7f)[pixPtrLocalCopy[ ( (v/z)&(64*63) ) + ((u/z)&63) ] ];
 			//end edit -MM
@@ -562,7 +571,7 @@ static void c_tmap_scanline_per()
 
 	} else {
 		for (x= fx_xright-fx_xleft+1 ; x > 0; --x ) {
-			if (++index >= SWIDTH*SHEIGHT) return;
+			if (++index >= screen_pixels) return;
 			c = static_cast<uint32_t>(pixptr[ ( (v/z)&(64*63) ) + ((u/z)&63) ]);
 			if ( c!=TRANSPARENCY_COLOR)
 				*dest = gr_fade_table.base_type::operator[]((l >> 8) & 0x7f)[c];
@@ -595,7 +604,7 @@ static void c_tmap_scanline_per_span()
 	/* As c_tmap_scanline_per: nothing at or after the last pixel of the
 	 * screen.
 	 */
-	if (const int limit{SWIDTH * SHEIGHT - 1 - index}; x > limit)
+	if (const int limit{screen_pixels - 1 - index}; x > limit)
 		x = limit;
 	if (x <= 0)
 		return;
@@ -702,7 +711,7 @@ static void c_tmap_scanline_quad()
 
 	if (!Transparency_on)	{
 		for (x= fx_xright-fx_xleft+1 ; x > 0; --x ) {
-			if (++index >= SWIDTH*SHEIGHT) return;
+			if (++index >= screen_pixels) return;
 			*dest++ = gr_fade_table.base_type::operator[]((l >> 8) & 0x7f)[pixptr[  (f2i(v)&63)*64 + (f2i(u)&63) ] ];
 			l += dldx;
 			u += dudx;
@@ -712,7 +721,7 @@ static void c_tmap_scanline_quad()
 		}
 	} else {
 		for (x= fx_xright-fx_xleft+1 ; x > 0; --x ) {
-			if (++index >= SWIDTH*SHEIGHT) return;
+			if (++index >= screen_pixels) return;
 			c = static_cast<uint32_t>(pixptr[  (f2i(v)&63)*64 + (f2i(u)&63) ]);
 			if ( c!=255)
 				*dest = gr_fade_table.base_type::operator[]((l >> 8) & 0x7f)[c];
