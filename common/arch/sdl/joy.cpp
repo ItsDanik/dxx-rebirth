@@ -233,18 +233,18 @@ namespace {
  * stick all the way: the d-pad then does what the right stick does.
  */
 constexpr unsigned mister_dpad_axis{2};	// the right stick's X, Y the next
-/* The game has one throttle axis and the triggers are two (0..127, L2
- * and R2), so the first trigger's axis is both: R2 forward (negative, as
- * a stick pushed up) and L2 back.  The second sends nothing.
+/* Main_MiSTer presses the d-pad as well when the left stick is pushed far
+ * (a digital pad for the cores), so a d-pad direction the left stick is
+ * pushed in is the stick's: it slides and does not turn.
  */
-constexpr unsigned mister_trigger_axis{4};
+constexpr int mister_stick_pad{13};	// 10% of the left stick's range
 
 struct mister_dpad_state
 {
 	std::array<int, 2> stick;	// the right stick itself
 	std::array<int, 2> dpad;	// -127, 0, 127
-	std::array<int, 2> trigger;	// L2, R2
-	int throttle;	// sent on mister_trigger_axis
+	std::array<int, 2> left;	// the left stick
+	uint8_t hat;
 };
 
 std::array<mister_dpad_state, DXX_MAX_JOYSTICKS> mister_dpad;
@@ -270,6 +270,23 @@ window_event_result send_mister_dpad_axis(d_physical_joystick &joystick, const u
 	return event_send(event);
 }
 
+int get_mister_dpad_direction(const uint8_t hat, const uint8_t minus, const uint8_t plus, const int left)
+{
+	if ((hat & minus) && left >= -mister_stick_pad)
+		return -127;
+	if ((hat & plus) && left <= mister_stick_pad)
+		return 127;
+	return 0;
+}
+
+void update_mister_dpad(d_physical_joystick &joystick, mister_dpad_state &state)
+{
+	state.dpad[0] = get_mister_dpad_direction(state.hat, SDL_HAT_LEFT, SDL_HAT_RIGHT, state.left[0]);
+	state.dpad[1] = get_mister_dpad_direction(state.hat, SDL_HAT_UP, SDL_HAT_DOWN, state.left[1]);
+	for (const unsigned axis : {0u, 1u})
+		send_mister_dpad_axis(joystick, mister_dpad_axis + axis, get_mister_axis_value(state, axis));
+}
+
 }
 #endif
 
@@ -283,10 +300,8 @@ window_event_result joy_hat_handler(const SDL_JoyHatEvent *const jhe)
 	if (jhe->hat == 0)
 	{
 		auto &state{get_mister_dpad_state(*joystick)};
-		state.dpad[0] = (jhe->value & SDL_HAT_LEFT) ? -127 : (jhe->value & SDL_HAT_RIGHT) ? 127 : 0;
-		state.dpad[1] = (jhe->value & SDL_HAT_UP) ? -127 : (jhe->value & SDL_HAT_DOWN) ? 127 : 0;
-		for (const unsigned axis : {0u, 1u})
-			send_mister_dpad_axis(*joystick, mister_dpad_axis + axis, get_mister_axis_value(state, axis));
+		state.hat = jhe->value;
+		update_mister_dpad(*joystick, state);
 	}
 #endif
 	int hat = joystick->hat_map()[jhe->hat];
@@ -398,17 +413,10 @@ window_event_result joy_axis_handler(const SDL_JoyAxisEvent *const jae)
 		state.stick[i] = new_axis_value;
 		new_axis_value = get_mister_axis_value(state, i);
 	}
-	else if (const unsigned i{jae->axis - mister_trigger_axis}; i < 2)
+	else if (jae->axis < 2)
 	{
-		/* axis_value stays the trigger's, for joy_axisbutton_handler */
-		axis_value = state.trigger[i] = new_axis_value;
-		const int throttle{state.trigger[0] - state.trigger[1]};
-		if (state.throttle == throttle)
-			return window_event_result::ignored;
-		d_event_joystick_moved event{event_type::joystick_moved};
-		event.value = state.throttle = throttle;
-		event.axis = js->axis_map()[mister_trigger_axis];
-		return event_send(event);
+		state.left[jae->axis] = new_axis_value;
+		update_mister_dpad(*js, state);
 	}
 #else
 	const int new_axis_value{jae->value / 256};
@@ -556,11 +564,11 @@ void joy_init()
 			{
 				cf_assert(idx <= DXX_MAX_AXES_PER_JOYSTICK);
 				value = joystick_n_buttons;
-				//an axis count as 2 buttons. negative - and positive +
+				//an axis count as 2 buttons, positive + and negative -
 				joy_key_map[joystick_n_buttons] = (idx == 1) ? KEY_RIGHT : (idx == 2) ? KEY_DOWN : 0;
-				snprintf(&joybutton_text[joystick_n_buttons++][0], sizeof(joybutton_text[0]), "J%u -A%u", i + 1, idx);
-				joy_key_map[joystick_n_buttons] = (idx == 1) ? KEY_LEFT : (idx == 2) ? KEY_UP : 0;
 				snprintf(&joybutton_text[joystick_n_buttons++][0], sizeof(joybutton_text[0]), "J%u +A%u", i + 1, idx);
+				joy_key_map[joystick_n_buttons] = (idx == 1) ? KEY_LEFT : (idx == 2) ? KEY_UP : 0;
+				snprintf(&joybutton_text[joystick_n_buttons++][0], sizeof(joybutton_text[0]), "J%u -A%u", i + 1, idx);
 			}
 #endif
 
@@ -605,10 +613,6 @@ void joy_flush()
 #if DXX_MAX_AXES_PER_JOYSTICK
 	range_for (auto &j, SDL_Joysticks)
 		j.axis_value() = {};
-#if DXX_USE_MISTER_HYBRID && DXX_MAX_HATS_PER_JOYSTICK
-	for (auto &state : mister_dpad)
-		state.throttle = 0;
-#endif
 #endif
 }
 
