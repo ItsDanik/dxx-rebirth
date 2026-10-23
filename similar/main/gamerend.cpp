@@ -784,7 +784,7 @@ void game_render_frame_mono(const d_robot_info_array &Robot_info, const control_
 #if DXX_USE_MISTER_HYBRID
 	/* 320x240 (init_cockpit()): the view fills the frame.  The cockpit, the
 	 * status bar and the gauges are drawn to the 320x200 at the bottom HUD
-	 * margin, the HUD from the top margin down to where the view ends in
+	 * margin, the view going on below them, the HUD from the top margin down to where the view ends in
 	 * 320x200.  The reticle and what marks objects stay on the view.
 	 */
 	grs_subcanvas mister_bottom, mister_hud;
@@ -894,15 +894,6 @@ void game_render_frame_mono(const d_robot_info_array &Robot_info, const control_
 
 	if (PlayerCfg.CockpitMode[1] == cockpit_mode_t::full_cockpit || PlayerCfg.CockpitMode[1] == cockpit_mode_t::status_bar)
 		render_gauges(canvas, Newdemo_state == ND_STATE_PLAYBACK ? Newdemo_game_mode : Game_mode);
-#if DXX_USE_MISTER_HYBRID
-	/* below a cockpit picture or status bar at the margin, black */
-	if (mister_frame && PlayerCfg.CockpitMode[1] != cockpit_mode_t::full_screen)
-	{
-		const auto &b{mister_bottom.cv_bitmap};
-		if (const int below{b.bm_y + b.bm_h}; below < mister_frame->cv_bitmap.bm_h)
-			gr_urect(*mister_frame, 0, below, b.bm_w - 1, mister_frame->cv_bitmap.bm_h - 1, 0);
-	}
-#endif
 	}
 
 	if (!no_draw_hud) {
