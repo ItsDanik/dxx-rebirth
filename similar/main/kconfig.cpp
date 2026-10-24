@@ -812,6 +812,28 @@ static enumerated_array<kc_mitem, std::size(kc_joystick), dxx_kconfig_ui_kc_joys
 static enumerated_array<kc_mitem, std::size(kc_mouse), dxx_kconfig_ui_kc_mouse> kcm_mouse;
 static std::array<kc_mitem, std::size(kc_rebirth)> kcm_rebirth;
 
+#define DXX_MISTER_DPAD	(DXX_USE_MISTER_HYBRID && DXX_MAX_JOYSTICKS && DXX_MAX_HATS_PER_JOYSTICK && DXX_MAX_AXES_PER_JOYSTICK)
+#if DXX_MISTER_DPAD
+/* A d-pad direction the player bound to a control (or a weapon) does only
+ * that: it stops pushing the left stick.
+ */
+static void kc_mister_bind_dpad()
+{
+	const unsigned first{joy_mister_dpad_button()};
+	uint8_t directions{0};
+	const auto bind = [first, &directions](const unsigned value) {
+		if (first != 255 && value >= first && value < first + 4)
+			directions |= 1 << (value - first);
+	};
+	for (auto &&[kc, kcm] : zip(kc_joystick, kcm_joystick))
+		if (kc.type == kc_type::joy_button)
+			bind(kcm.value);
+	for (std::size_t i = 1; i < kcm_rebirth.size(); i += 3)
+		bind(kcm_rebirth[i].value);
+	joy_mister_bind_dpad(directions);
+}
+#endif
+
 static void kconfig_start_changing(kc_menu &menu)
 {
 	const auto citem{menu.citem};
@@ -1346,6 +1368,11 @@ window_event_result kc_menu::event_handler(const d_event &event)
 
 #if DXX_MAX_BUTTONS_PER_JOYSTICK || DXX_MAX_HATS_PER_JOYSTICK
 		case event_type::joystick_button_down:
+#if DXX_MISTER_DPAD
+			/* the left stick pushed far is not the d-pad */
+			if (changing && joy_mister_dpad_from_stick(event_joystick_get_button(event)))
+				break;
+#endif
 			if (changing && items[citem].type == kc_type::joy_button)
 				kc_change_joybutton(*this, event, mitems[citem]);
 #if SDL_MAJOR_VERSION == 2
@@ -1429,6 +1456,9 @@ window_event_result kc_menu::event_handler(const d_event &event)
 				setting = kcm.value;
 			for (auto &&[kcm, setting] : zip(kcm_rebirth, PlayerCfg.KeySettingsRebirth))
 				setting = kcm.value;
+#if DXX_MISTER_DPAD
+			kc_mister_bind_dpad();
+#endif
 			return window_event_result::ignored;	// continue closing
 		default:
 			return window_event_result::ignored;
@@ -1774,6 +1804,10 @@ void kconfig_read_controls(control_info &Controls, const d_event &event, int aut
 				break;
 			{
 				const auto &&button = event_joystick_get_button(event);
+#if DXX_MISTER_DPAD
+				if (event.type == event_type::joystick_button_down && joy_mister_dpad_from_stick(button))
+					break;
+#endif
 				if (button < 255)
 				{
 					for (auto &&[kc, kcm] : zip(kc_joystick, kcm_joystick))
@@ -2147,4 +2181,7 @@ void kc_set_controls()
 
 	for (auto &&[kcm, setting] : zip(kcm_rebirth, PlayerCfg.KeySettingsRebirth))
 		kcm.oldvalue = kcm.value = setting;
+#if DXX_MISTER_DPAD
+	kc_mister_bind_dpad();
+#endif
 }

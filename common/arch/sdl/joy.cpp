@@ -233,9 +233,15 @@ namespace {
  * stick all the way: the d-pad then does what the left stick does.
  * Main_MiSTer presses the d-pad as well when the left stick is pushed far
  * (a digital pad for the cores), so a d-pad direction the left stick is
- * pushed in is the stick's: it keeps its own speed.
+ * pushed in is the stick's: it keeps its own speed, and the game's
+ * controls do not take it for the d-pad (joy_mister_dpad_from_stick()).
+ * A d-pad direction the player bound to a control is that control's
+ * alone and leaves the stick as it is (joy_mister_bind_dpad()).
  */
 constexpr int mister_stick_pad{13};	// 10% of the left stick's range
+
+/* SDL_HAT_* directions with a binding of their own */
+uint8_t mister_dpad_bound;
 
 struct mister_dpad_state
 {
@@ -278,10 +284,48 @@ int get_mister_dpad_direction(const uint8_t hat, const uint8_t minus, const uint
 
 void update_mister_dpad(mister_dpad_state &state)
 {
-	state.dpad[0] = get_mister_dpad_direction(state.hat, SDL_HAT_LEFT, SDL_HAT_RIGHT, state.stick[0]);
-	state.dpad[1] = get_mister_dpad_direction(state.hat, SDL_HAT_UP, SDL_HAT_DOWN, state.stick[1]);
+	const uint8_t hat = state.hat & ~mister_dpad_bound;
+	state.dpad[0] = get_mister_dpad_direction(hat, SDL_HAT_LEFT, SDL_HAT_RIGHT, state.stick[0]);
+	state.dpad[1] = get_mister_dpad_direction(hat, SDL_HAT_UP, SDL_HAT_DOWN, state.stick[1]);
 }
 
+}
+
+unsigned joy_mister_dpad_button()
+{
+	if (!num_joysticks || !SDL_JoystickNumHats(SDL_Joysticks[0].handle().get()))
+		return 255;
+	return SDL_Joysticks[0].hat_map()[0];
+}
+
+void joy_mister_bind_dpad(const uint8_t directions)
+{
+	mister_dpad_bound = directions;
+	for (auto &state : mister_dpad)
+		update_mister_dpad(state);
+}
+
+bool joy_mister_dpad_from_stick(const unsigned button)
+{
+	for (auto &joystick : partial_range(SDL_Joysticks, static_cast<unsigned>(num_joysticks)))
+	{
+		const unsigned hat{joystick.hat_map()[0]};
+		if (button < hat || button >= hat + 4)
+			continue;
+		const auto &state{get_mister_dpad_state(joystick)};
+		/* the hat's buttons are its directions in the order of their bits */
+		const uint8_t direction = 1 << (button - hat);
+		if (!(state.hat & direction))
+			continue;
+		switch (direction)
+		{
+			case SDL_HAT_UP: return state.stick[1] < -mister_stick_pad;
+			case SDL_HAT_RIGHT: return state.stick[0] > mister_stick_pad;
+			case SDL_HAT_DOWN: return state.stick[1] > mister_stick_pad;
+			case SDL_HAT_LEFT: return state.stick[0] < -mister_stick_pad;
+		}
+	}
+	return false;
 }
 #endif
 

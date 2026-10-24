@@ -63,6 +63,21 @@ window_event_result joy_axis_handler(const SDL_JoyAxisEvent *jae);
 #define joy_axis_handler(jbe) (static_cast<const SDL_JoyAxisEvent *const &>(jbe), window_event_result::ignored)
 #endif
 
+#if DXX_USE_MISTER_HYBRID && DXX_MAX_HATS_PER_JOYSTICK && DXX_MAX_AXES_PER_JOYSTICK
+/* The first of the d-pad's four buttons (up, right, down, left), 255 if
+ * there is none.
+ */
+unsigned joy_mister_dpad_button();
+/* The d-pad directions (SDL_HAT_*) bound to a control: they no longer push
+ * the left stick.
+ */
+void joy_mister_bind_dpad(uint8_t directions);
+/* The button is a d-pad direction Main_MiSTer pressed because the left
+ * stick is pushed that way: not the d-pad's.
+ */
+bool joy_mister_dpad_from_stick(unsigned button);
+#endif
+
 #if DXX_MAX_AXES_PER_JOYSTICK && (DXX_MAX_BUTTONS_PER_JOYSTICK || DXX_MAX_HATS_PER_JOYSTICK)
 window_event_result joy_axisbutton_handler(const SDL_JoyAxisEvent *jae);
 #else
